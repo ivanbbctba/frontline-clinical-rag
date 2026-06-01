@@ -43,6 +43,9 @@ frontline-clinical-rag/
 │       ├── generation/
 │       ├── safety/
 │       └── evaluation/
+├── data/
+│   ├── raw/          
+│   └── vector_store/ 
 ├── docs/
 │   └── adr/
 │       └── ADR-001.md

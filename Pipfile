@@ -1,0 +1,29 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+langchain = "*"
+langchain-community = "*"
+langchain-core = "*"
+langchain-text-splitters = "*"
+faiss-cpu = "*"
+sentence-transformers = "*"
+pydantic = "*"
+pydantic-settings = "*"
+python-dotenv = "*"
+tqdm = "*"
+pypdf = "*"
+tiktoken = "*"
+
+[dev-packages]
+pytest = "*"
+pytest-asyncio = "*"
+black = "*"
+isort = "*"
+mypy = "*"
+ruff = "*"
+
+[requires]
+python_version = "3.12"
