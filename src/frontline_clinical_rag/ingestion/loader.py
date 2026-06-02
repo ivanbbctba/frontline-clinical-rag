@@ -17,22 +17,23 @@ from typing import List
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 
-from frontline_clinical_rag.core.config import settings
+from tqdm import tqdm
+
+from src.frontline_clinical_rag.core.config import settings
 
 
 class BaseMedicalChunker:
     """Abstract base for chunking strategies (ADR-002)."""
-
     def split_documents(self, docs: List[Document]) -> List[Document]:
         raise NotImplementedError
 
 
 class RecursiveMedicalChunker(BaseMedicalChunker):
     """Simple recursive splitter — the baseline that 'everyone uses'."""
-
     def split_documents(self, docs: List[Document]) -> List[Document]:
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.chunk_size,
@@ -61,16 +62,9 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
 
         chunks = splitter.split_documents(docs)
 
-        # Enrich every chunk with realistic medical metadata (based on Merck structure)
+        # Enrich every chunk with medical-specific metadata
         for i, chunk in enumerate(chunks):
-            metadata = chunk.metadata
             text = chunk.page_content.lower()
-
-            # Detect common Merck patterns
-            section = metadata.get("source", "unknown")
-            page = metadata.get("page", 0)
-
-            # Simple heuristic for chapter/subsection (can be improved later)
             chunk_type = "text"
             if "table" in text or "fig." in text or "figure" in text:
                 chunk_type = "table"
@@ -78,16 +72,15 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
                 chunk_type = "warning"
 
             chunk.metadata.update({
-                "source": metadata.get("source", "unknown.pdf"),
-                "page": page,
+                "source": chunk.metadata.get("source", "unknown.pdf"),
+                "page": chunk.metadata.get("page", 0),
                 "chunk_id": i,
                 "chunk_type": chunk_type,
                 "warning_level": "high" if chunk_type == "warning" else None,
-                "section": section,  # e.g., "1 - Nutritional Disorders"
-                "chapter_title": "unknown",  # TODO: extract real chapter title
-                "subsection": "unknown",  # TODO: extract "Introduction", "Etiology", etc.
+                "section": "unknown",                     # TODO: extract real section title
+                "chapter_title": "unknown",               # TODO: extract real chapter title
+                "subsection": "unknown",                  # TODO: extract "Introduction", "Etiology", etc.
                 "strategy": "hierarchical",
-                # Future: part_number, chapter_number, has_table, has_figure, etc.
             })
 
         return chunks
@@ -97,7 +90,14 @@ class MedicalDocumentLoader:
     """Main orchestrator for loading, chunking and indexing medical PDFs."""
 
     def __init__(self):
-        self.embeddings = SentenceTransformer(settings.embedding_model)
+        # Options:
+        #   device="cpu"          → safest and most stable (what we use now)
+        #   device="cuda"         → try this if you have ROCm / DirectML working
+        #   device="mps"          → not supported on AMD Windows
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=settings.embedding_model,
+            model_kwargs={"device": settings.embedding_device}
+        )
         self.vector_store_path = settings.faiss_index_path
 
     def load_pdfs(self) -> List[Document]:
@@ -108,9 +108,9 @@ class MedicalDocumentLoader:
         return docs
 
     def create_vector_store(
-            self,
-            chunker: BaseMedicalChunker,
-            strategy_name: str = "hierarchical"
+        self,
+        chunker: BaseMedicalChunker,
+        strategy_name: str = "hierarchical"
     ) -> FAISS:
         """Full pipeline: load → chunk → embed → persist FAISS index."""
         print(f"\n=== Starting {strategy_name.upper()} strategy ===")
@@ -121,8 +121,13 @@ class MedicalDocumentLoader:
         print(f"   → Created {len(chunks)} chunks")
         print(f"   → Embedding with {settings.embedding_model}...")
 
-        vector_store = FAISS.from_documents(chunks, self.embeddings)
+        # Minimal change: add progress bar during embedding
+        vector_store = FAISS.from_documents(
+            tqdm(chunks, desc="Embedding chunks", unit="chunk"),
+            self.embeddings
+        )
 
+        # Persist index
         vector_store.save_local(str(self.vector_store_path))
         print(f"✅ {strategy_name.capitalize()} vector store saved to {self.vector_store_path}")
 
@@ -135,12 +140,12 @@ if __name__ == "__main__":
 
     print("🚀 Testing both chunking strategies for comparison...")
 
-    # Production choice (rich metadata)
+    # Production choice
     hierarchical_store = loader.create_vector_store(
         HierarchicalMedicalChunker(), "hierarchical"
     )
 
-    # Simple baseline for fair comparison
+    # Baseline for fair comparison
     recursive_store = loader.create_vector_store(
         RecursiveMedicalChunker(), "recursive"
     )

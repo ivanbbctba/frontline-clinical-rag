@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # Embeddings
     embedding_model: str = "BAAI/bge-m3"
 
+    # Hardware acceleration
+    embedding_device: str = "cpu"  # "cpu", "cuda", or "mps"
+
     # FAISS
     vector_store_path: str = "data/vector_store/faiss_index"
 
