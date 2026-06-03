@@ -13,25 +13,24 @@ Follows ADR-002: HierarchicalMedicalChunker is the production choice.
 
 from __future__ import annotations
 
-from collections import Counter
+import logging
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Dict, List
 
 import fitz
-from langchain_core.documents import Document
-from langchain_community.vectorstores import FAISS
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFDirectoryLoader
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
-
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tqdm import tqdm
 
 from src.frontline_clinical_rag.core.config import settings
 
-import logging
-
 logger = logging.getLogger(__name__)
+
 
 def _slugify(value: str) -> str:
     """Create a stable, readable slug for metadata identifiers."""
@@ -73,7 +72,7 @@ def _is_probable_heading(text: str) -> bool:
     words = heading.split()
     if len(words) > 14:
         return False
-    if heading.endswith(('.', ',', ';')):
+    if heading.endswith((".", ",", ";")):
         return False
 
     if heading.isupper() and len(words) <= 10:
@@ -97,7 +96,9 @@ def _section_metadata(source: str, page_number: int, hierarchy: List[str]) -> di
         "page_number": page_number,
         "parent_chunk_id": ":".join(_slugify(part) for part in section_hierarchy),
         "section_hierarchy": section_hierarchy,
-        "section": section_hierarchy[1] if len(section_hierarchy) >= 2 else source_title,
+        "section": (
+            section_hierarchy[1] if len(section_hierarchy) >= 2 else source_title
+        ),
         "chapter_title": chapter_title,
         "subsection": subsection,
         "strategy": "hierarchical",
@@ -137,7 +138,7 @@ def _is_layout_heading(text: str, size: float, body_size: float, is_bold: bool) 
         return False
 
     words = heading.split()
-    if len(words) > 16 or heading.endswith(('.', ',', ';')):
+    if len(words) > 16 or heading.endswith((".", ",", ";")):
         return False
     if size >= body_size + 1.5:
         return True
@@ -171,14 +172,15 @@ def _body_font_size(font_sizes: List[float]) -> float:
 
 class BaseMedicalChunker:
     """Abstract base for chunking strategies (ADR-002)."""
+
     def split_documents(self, docs: List[Document]) -> List[Document]:
         raise NotImplementedError
 
 
 class RecursiveMedicalChunker(BaseMedicalChunker):
     """Simple recursive splitter — the baseline that 'everyone uses'."""
-    def split_documents(self, docs: List[Document]) -> List[Document]:
 
+    def split_documents(self, docs: List[Document]) -> List[Document]:
 
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.chunk_size,
@@ -198,7 +200,6 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
 
     def split_documents(self, docs: List[Document]) -> List[Document]:
 
-
         section_docs = self._add_section_metadata(docs)
 
         splitter = RecursiveCharacterTextSplitter(
@@ -216,11 +217,13 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
             chunk_type = _detect_chunk_type(chunk.page_content)
             chunk_id = _make_chunk_id(source, page_number, i)
 
-            chunk.metadata.update({
-                "chunk_id": chunk_id,
-                "chunk_type": chunk_type,
-                "warning_level": "high" if chunk_type == "warning" else None,
-            })
+            chunk.metadata.update(
+                {
+                    "chunk_id": chunk_id,
+                    "chunk_type": chunk_type,
+                    "warning_level": "high" if chunk_type == "warning" else None,
+                }
+            )
 
         return chunks
 
@@ -244,7 +247,7 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
 
             try:
                 pdf = fitz.open(pdf_path)
-            except Exception  as exc:
+            except Exception as exc:
                 logger.warning("Failed to open PDF with PyMuPDF (%s): %s", source, exc)
                 continue
 
@@ -305,7 +308,9 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
 
                     for line in page_lines:
                         text = line["text"]
-                        if _is_layout_heading(text, line["size"], body_size, line["bold"]):
+                        if _is_layout_heading(
+                            text, line["size"], body_size, line["bold"]
+                        ):
                             flush_buffer()
                             level = _heading_level(line["size"], heading_sizes)
                             if page_number in toc_by_page:
@@ -341,11 +346,13 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
                     text = _clean_heading(_line_text(line))
                     if not text:
                         continue
-                    page_lines.append({
-                        "text": text,
-                        "size": _line_size(line),
-                        "bold": _line_is_bold(line),
-                    })
+                    page_lines.append(
+                        {
+                            "text": text,
+                            "size": _line_size(line),
+                            "bold": _line_is_bold(line),
+                        }
+                    )
             pages.append(page_lines)
         return pages
 
@@ -359,7 +366,11 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
             if page_number < 1:
                 continue
 
-            active = {known_level: value for known_level, value in active.items() if known_level < level}
+            active = {
+                known_level: value
+                for known_level, value in active.items()
+                if known_level < level
+            }
             active[level] = _clean_heading(title)
             toc_by_page[page_number - 1] = active.copy()
 
@@ -406,7 +417,10 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
                 if current_subsection:
                     hierarchy.append(current_subsection)
 
-                metadata = {**doc.metadata, **_section_metadata(source, page_number, hierarchy)}
+                metadata = {
+                    **doc.metadata,
+                    **_section_metadata(source, page_number, hierarchy),
+                }
                 section_docs.append(Document(page_content=text, metadata=metadata))
                 buffer.clear()
 
@@ -440,7 +454,7 @@ class MedicalDocumentLoader:
         #   device="mps"          → not supported on AMD Windows
         self.embeddings = HuggingFaceEmbeddings(
             model_name=settings.embedding_model,
-            model_kwargs={"device": settings.embedding_device}
+            model_kwargs={"device": settings.embedding_device},
         )
         self.vector_store_path = settings.faiss_index_path
 
@@ -454,12 +468,9 @@ class MedicalDocumentLoader:
         return docs
 
     def create_vector_store(
-        self,
-        chunker: BaseMedicalChunker,
-        strategy_name: str = "hierarchical"
+        self, chunker: BaseMedicalChunker, strategy_name: str = "hierarchical"
     ) -> FAISS:
         """Full pipeline: load → chunk → embed → persist FAISS index."""
-
 
         print(f"\n=== Starting {strategy_name.upper()} strategy ===")
 
@@ -470,8 +481,7 @@ class MedicalDocumentLoader:
         print(f"   → Embedding with {settings.embedding_model}...")
 
         vector_store = FAISS.from_documents(
-            tqdm(chunks, desc="Embedding chunks", unit="chunk"),
-            self.embeddings
+            tqdm(chunks, desc="Embedding chunks", unit="chunk"), self.embeddings
         )
 
         # Persist index
@@ -480,6 +490,7 @@ class MedicalDocumentLoader:
         print(f"✅ {strategy_name.capitalize()} vector store saved to {strategy_path}")
 
         return vector_store
+
 
 if __name__ == "__main__":
     loader = MedicalDocumentLoader()
@@ -492,9 +503,7 @@ if __name__ == "__main__":
     )
 
     # Baseline for fair comparison
-    recursive_store = loader.create_vector_store(
-        RecursiveMedicalChunker(), "recursive"
-    )
+    recursive_store = loader.create_vector_store(RecursiveMedicalChunker(), "recursive")
 
     print("\n🎉 Both vector stores created successfully!")
     print("You can now compare retrieval quality between the two strategies.")
