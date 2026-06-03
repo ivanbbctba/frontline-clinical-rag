@@ -11,6 +11,7 @@ Responsible for:
 Follows ADR-002: HierarchicalMedicalChunker is the production choice.
 """
 
+import re
 from pathlib import Path
 from typing import List
 
@@ -19,11 +20,35 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sentence_transformers import SentenceTransformer
 
 from tqdm import tqdm
 
 from src.frontline_clinical_rag.core.config import settings
+
+
+def _slugify(value: str) -> str:
+    """Create a stable, readable slug for metadata identifiers."""
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or "unknown"
+
+
+def _detect_chunk_type(text: str) -> str:
+    """Detect high-signal medical chunk types without broad keyword matches."""
+    lower = text.strip().lower()
+
+    if lower.startswith(("black box warning", "boxed warning", "warning", "caution")):
+        return "warning"
+    if lower.startswith("table "):
+        return "table"
+    if lower.startswith(("figure ", "fig. ")):
+        return "figure"
+    return "text"
+
+
+def _make_chunk_id(source: str, page_number: int, chunk_index: int) -> str:
+    """Build a deterministic chunk id from stable source metadata."""
+    source_title = Path(source).stem if source else "unknown"
+    return f"{_slugify(source_title)}:p{page_number}:c{chunk_index:04d}"
 
 
 class BaseMedicalChunker:
@@ -64,22 +89,26 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
 
         # Enrich every chunk with medical-specific metadata
         for i, chunk in enumerate(chunks):
-            text = chunk.page_content.lower()
-            chunk_type = "text"
-            if "table" in text or "fig." in text or "figure" in text:
-                chunk_type = "table"
-            elif any(w in text for w in ["warning", "caution", "black box", "adverse"]):
-                chunk_type = "warning"
+            source = chunk.metadata.get("source", "unknown.pdf")
+            page_number = chunk.metadata.get("page", 0)
+            source_title = Path(source).stem if source else "unknown"
+            section_hierarchy = [source_title]
+            chunk_type = _detect_chunk_type(chunk.page_content)
+            chunk_id = _make_chunk_id(source, page_number, i)
 
             chunk.metadata.update({
-                "source": chunk.metadata.get("source", "unknown.pdf"),
-                "page": chunk.metadata.get("page", 0),
-                "chunk_id": i,
+                "source": source,
+                "source_title": source_title,
+                "page": page_number,
+                "page_number": page_number,
+                "chunk_id": chunk_id,
+                "parent_chunk_id": _slugify(source_title),
                 "chunk_type": chunk_type,
                 "warning_level": "high" if chunk_type == "warning" else None,
-                "section": "unknown",                     # TODO: extract real section title
-                "chapter_title": "unknown",               # TODO: extract real chapter title
-                "subsection": "unknown",                  # TODO: extract "Introduction", "Etiology", etc.
+                "section_hierarchy": section_hierarchy,
+                "section": source_title,
+                "chapter_title": None,                    # TODO: extract real chapter title
+                "subsection": None,                       # TODO: extract "Introduction", "Etiology", etc.
                 "strategy": "hierarchical",
             })
 
@@ -121,20 +150,18 @@ class MedicalDocumentLoader:
         print(f"   → Created {len(chunks)} chunks")
         print(f"   → Embedding with {settings.embedding_model}...")
 
-        # Minimal change: add progress bar during embedding
         vector_store = FAISS.from_documents(
             tqdm(chunks, desc="Embedding chunks", unit="chunk"),
             self.embeddings
         )
 
         # Persist index
-        vector_store.save_local(str(self.vector_store_path))
-        print(f"✅ {strategy_name.capitalize()} vector store saved to {self.vector_store_path}")
+        strategy_path = Path(self.vector_store_path) / strategy_name
+        vector_store.save_local(str(strategy_path))
+        print(f"✅ {strategy_name.capitalize()} vector store saved to {strategy_path}")
 
         return vector_store
 
-
-# Simple entry point for manual testing / comparison
 if __name__ == "__main__":
     loader = MedicalDocumentLoader()
 

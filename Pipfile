@@ -5,10 +5,8 @@ name = "pypi"
 
 [packages]
 langchain = "*"
-langchain-community = "*"
 langchain-core = "*"
 langchain-text-splitters = "*"
-langchain-huggingface = "*"
 faiss-cpu = "*"
 sentence-transformers = "*"
 pydantic = "*"
@@ -17,6 +15,8 @@ python-dotenv = "*"
 tqdm = "*"
 pypdf = "*"
 tiktoken = "*"
+langchain-community = "*"
+langchain-huggingface = "*"
 
 [dev-packages]
 pytest = "*"
