@@ -20,14 +20,18 @@ from typing import Dict, List
 
 import fitz
 from langchain_core.documents import Document
+from langchain_community.vectorstores import FAISS
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFDirectoryLoader
+from langchain_huggingface import HuggingFaceEmbeddings
 
 from tqdm import tqdm
 
 from src.frontline_clinical_rag.core.config import settings
 
+import logging
 
-MAX_HEADING_LENGTH = 140
-
+logger = logging.getLogger(__name__)
 
 def _slugify(value: str) -> str:
     """Create a stable, readable slug for metadata identifiers."""
@@ -63,7 +67,7 @@ def _clean_heading(text: str) -> str:
 def _is_probable_heading(text: str) -> bool:
     """Fallback heading detector for documents without PyMuPDF layout data."""
     heading = _clean_heading(text)
-    if not heading or len(heading) > MAX_HEADING_LENGTH:
+    if not heading or len(heading) > settings.max_heading_length:
         return False
 
     words = heading.split()
@@ -125,7 +129,7 @@ def _line_is_bold(block: dict) -> bool:
 def _is_layout_heading(text: str, size: float, body_size: float, is_bold: bool) -> bool:
     """Detect headings from document layout, not from hardcoded medical titles."""
     heading = _clean_heading(text)
-    if not heading or len(heading) > MAX_HEADING_LENGTH:
+    if not heading or len(heading) > settings.max_heading_length:
         return False
     if heading.isdigit() or heading.count(".") >= 4:
         return False
@@ -174,7 +178,7 @@ class BaseMedicalChunker:
 class RecursiveMedicalChunker(BaseMedicalChunker):
     """Simple recursive splitter — the baseline that 'everyone uses'."""
     def split_documents(self, docs: List[Document]) -> List[Document]:
-        from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.chunk_size,
@@ -193,7 +197,7 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
     """
 
     def split_documents(self, docs: List[Document]) -> List[Document]:
-        from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 
         section_docs = self._add_section_metadata(docs)
 
@@ -235,11 +239,13 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
         for source in sources:
             pdf_path = Path(source)
             if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
+                logger.warning("Skipping non-PDF or missing file: %s", source)
                 continue
 
             try:
                 pdf = fitz.open(pdf_path)
-            except Exception:
+            except Exception  as exc:
+                logger.warning("Failed to open PDF with PyMuPDF (%s): %s", source, exc)
                 continue
 
             try:
@@ -248,6 +254,10 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
                 toc_by_page = self._toc_hierarchy_by_page(pdf)
                 font_sizes = [line["size"] for page in lines_by_page for line in page]
                 if not font_sizes:
+                    logger.warning(
+                        "No font size information extracted from %s — falling back to text-based hierarchy",
+                        source,
+                    )
                     continue
 
                 body_size = _body_font_size(font_sizes)
@@ -255,9 +265,15 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
                     line["size"]
                     for page in lines_by_page
                     for line in page
-                    if _is_layout_heading(line["text"], line["size"], body_size, line["bold"])
+                    if _is_layout_heading(
+                        line["text"], line["size"], body_size, line["bold"]
+                    )
                 ]
                 if not heading_sizes:
+                    logger.warning(
+                        "No layout headings detected in %s (font/bold criteria) — will use fallback section splitter",
+                        source,
+                    )
                     continue
 
                 hierarchy_by_level: Dict[int, str] = {}
@@ -417,7 +433,6 @@ class MedicalDocumentLoader:
     """Main orchestrator for loading, chunking and indexing medical PDFs."""
 
     def __init__(self):
-        from langchain_huggingface import HuggingFaceEmbeddings
 
         # Options:
         #   device="cpu"          → safest and most stable (what we use now)
@@ -430,12 +445,12 @@ class MedicalDocumentLoader:
         self.vector_store_path = settings.faiss_index_path
 
     def load_pdfs(self) -> List[Document]:
-        """Load all PDFs from data/raw/."""
-        from langchain_community.document_loaders import PyPDFDirectoryLoader
+        """Load all PDFs from the configured raw data directory."""
 
-        loader = PyPDFDirectoryLoader(str(Path("data/raw")))
+        raw_path = Path(settings.raw_data_path)
+        loader = PyPDFDirectoryLoader(str(raw_path))
         docs = loader.load()
-        print(f"📄 Loaded {len(docs)} PDF documents from data/raw/")
+        print(f"📄 Loaded {len(docs)} PDF documents from {raw_path}")
         return docs
 
     def create_vector_store(
@@ -444,7 +459,7 @@ class MedicalDocumentLoader:
         strategy_name: str = "hierarchical"
     ) -> FAISS:
         """Full pipeline: load → chunk → embed → persist FAISS index."""
-        from langchain_community.vectorstores import FAISS
+
 
         print(f"\n=== Starting {strategy_name.upper()} strategy ===")
 

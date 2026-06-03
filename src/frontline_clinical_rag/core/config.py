@@ -20,12 +20,18 @@ class Settings(BaseSettings):
     # Hardware acceleration
     embedding_device: str = "cpu"  # "cpu", "cuda", or "mps"
 
+    # Data locations
+    raw_data_path: str = "data/raw"
+
     # FAISS
     vector_store_path: str = "data/vector_store/faiss_index"
 
     # Chunking (from ADR-002)
     chunk_size: int = 800
     chunk_overlap: int = 200
+
+    # Heading detection (used by HierarchicalMedicalChunker)
+    max_heading_length: int = 140
 
     # Medical RAG specific
     max_tokens: int = 1024
