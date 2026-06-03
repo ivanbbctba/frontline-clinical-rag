@@ -11,19 +11,22 @@ Responsible for:
 Follows ADR-002: HierarchicalMedicalChunker is the production choice.
 """
 
+from __future__ import annotations
+
+from collections import Counter
 import re
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
-from langchain_community.document_loaders import PyPDFDirectoryLoader
-from langchain_community.vectorstores import FAISS
+import fitz
 from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from tqdm import tqdm
 
 from src.frontline_clinical_rag.core.config import settings
+
+
+MAX_HEADING_LENGTH = 140
 
 
 def _slugify(value: str) -> str:
@@ -51,6 +54,117 @@ def _make_chunk_id(source: str, page_number: int, chunk_index: int) -> str:
     return f"{_slugify(source_title)}:p{page_number}:c{chunk_index:04d}"
 
 
+def _clean_heading(text: str) -> str:
+    """Normalize a possible heading while preserving readable casing."""
+    heading = re.sub(r"\s+", " ", text).strip(" :-–—\t")
+    return heading
+
+
+def _is_probable_heading(text: str) -> bool:
+    """Fallback heading detector for documents without PyMuPDF layout data."""
+    heading = _clean_heading(text)
+    if not heading or len(heading) > MAX_HEADING_LENGTH:
+        return False
+
+    words = heading.split()
+    if len(words) > 14:
+        return False
+    if heading.endswith(('.', ',', ';')):
+        return False
+
+    if heading.isupper() and len(words) <= 10:
+        return True
+    if heading.istitle() and len(words) <= 12:
+        return True
+    return False
+
+
+def _section_metadata(source: str, page_number: int, hierarchy: List[str]) -> dict:
+    """Build hierarchy-aware metadata shared by all chunks in a section."""
+    source_title = Path(source).stem if source else "unknown"
+    section_hierarchy = hierarchy or [source_title]
+    chapter_title = section_hierarchy[1] if len(section_hierarchy) >= 2 else None
+    subsection = section_hierarchy[2] if len(section_hierarchy) >= 3 else None
+
+    return {
+        "source": source,
+        "source_title": source_title,
+        "page": page_number,
+        "page_number": page_number,
+        "parent_chunk_id": ":".join(_slugify(part) for part in section_hierarchy),
+        "section_hierarchy": section_hierarchy,
+        "section": section_hierarchy[1] if len(section_hierarchy) >= 2 else source_title,
+        "chapter_title": chapter_title,
+        "subsection": subsection,
+        "strategy": "hierarchical",
+    }
+
+
+def _line_text(block: dict) -> str:
+    """Extract text from a PyMuPDF line/block dictionary."""
+    spans = block.get("spans", [])
+    return "".join(span.get("text", "") for span in spans)
+
+
+def _line_size(block: dict) -> float:
+    """Return the largest span font size for a PyMuPDF line/block dictionary."""
+    spans = block.get("spans", [])
+    return max((span.get("size", 0.0) for span in spans), default=0.0)
+
+
+def _line_is_bold(block: dict) -> bool:
+    """Infer boldness from PyMuPDF font names or font flags."""
+    for span in block.get("spans", []):
+        font = span.get("font", "").lower()
+        flags = span.get("flags", 0)
+        if "bold" in font or flags & 16:
+            return True
+    return False
+
+
+def _is_layout_heading(text: str, size: float, body_size: float, is_bold: bool) -> bool:
+    """Detect headings from document layout, not from hardcoded medical titles."""
+    heading = _clean_heading(text)
+    if not heading or len(heading) > MAX_HEADING_LENGTH:
+        return False
+    if heading.isdigit() or heading.count(".") >= 4:
+        return False
+    if ":" in heading and size < body_size + 1.5:
+        return False
+
+    words = heading.split()
+    if len(words) > 16 or heading.endswith(('.', ',', ';')):
+        return False
+    if size >= body_size + 1.5:
+        return True
+    if is_bold and size >= body_size and len(words) <= 12:
+        return True
+    if heading.isupper() and size >= body_size and len(words) <= 10:
+        return True
+    return False
+
+
+def _heading_level(size: float, heading_sizes: List[float]) -> int:
+    """Map corpus-discovered heading font sizes to hierarchy levels."""
+    larger_sizes = sorted({round(value, 1) for value in heading_sizes}, reverse=True)
+    for index, known_size in enumerate(larger_sizes[:3], start=1):
+        if round(size, 1) >= known_size - 0.2:
+            return index
+    return min(len(larger_sizes), 3) or 1
+
+
+def _body_font_size(font_sizes: List[float]) -> float:
+    """Infer body text size from document-local font statistics."""
+    rounded_sizes = [round(size, 1) for size in font_sizes if size > 0]
+    if not rounded_sizes:
+        return 0.0
+
+    counts = Counter(rounded_sizes)
+    highest_count = max(counts.values())
+    common_sizes = [size for size, count in counts.items() if count == highest_count]
+    return min(common_sizes)
+
+
 class BaseMedicalChunker:
     """Abstract base for chunking strategies (ADR-002)."""
     def split_documents(self, docs: List[Document]) -> List[Document]:
@@ -60,6 +174,8 @@ class BaseMedicalChunker:
 class RecursiveMedicalChunker(BaseMedicalChunker):
     """Simple recursive splitter — the baseline that 'everyone uses'."""
     def split_documents(self, docs: List[Document]) -> List[Document]:
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
@@ -70,55 +186,239 @@ class RecursiveMedicalChunker(BaseMedicalChunker):
 
 class HierarchicalMedicalChunker(BaseMedicalChunker):
     """
-    Production-grade hierarchical chunker for medical documents (Merck-style).
+    Production-grade hierarchical chunker for medical documents.
 
-    Currently adds rich medical metadata based on real Merck structure.
-    TODO: Replace with true hierarchical parser (Unstructured.io or PyMuPDF layout analysis)
-          to detect: Book/Part → Section → Chapter → Subsection → Table → Black-box warning.
+    Uses PyMuPDF layout analysis to infer hierarchy from document-specific
+    font sizes/styles instead of hardcoded clinical heading titles.
     """
 
     def split_documents(self, docs: List[Document]) -> List[Document]:
-        # Baseline splitter (same as recursive for now)
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+        section_docs = self._add_section_metadata(docs)
+
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
 
-        chunks = splitter.split_documents(docs)
+        chunks = splitter.split_documents(section_docs)
 
         # Enrich every chunk with medical-specific metadata
         for i, chunk in enumerate(chunks):
             source = chunk.metadata.get("source", "unknown.pdf")
             page_number = chunk.metadata.get("page", 0)
-            source_title = Path(source).stem if source else "unknown"
-            section_hierarchy = [source_title]
             chunk_type = _detect_chunk_type(chunk.page_content)
             chunk_id = _make_chunk_id(source, page_number, i)
 
             chunk.metadata.update({
-                "source": source,
-                "source_title": source_title,
-                "page": page_number,
-                "page_number": page_number,
                 "chunk_id": chunk_id,
-                "parent_chunk_id": _slugify(source_title),
                 "chunk_type": chunk_type,
                 "warning_level": "high" if chunk_type == "warning" else None,
-                "section_hierarchy": section_hierarchy,
-                "section": source_title,
-                "chapter_title": None,                    # TODO: extract real chapter title
-                "subsection": None,                       # TODO: extract "Introduction", "Etiology", etc.
-                "strategy": "hierarchical",
             })
 
         return chunks
+
+    def _add_section_metadata(self, docs: List[Document]) -> List[Document]:
+        """Split pages into section-aware documents using PyMuPDF when possible."""
+        layout_docs = self._add_layout_section_metadata(docs)
+        if layout_docs:
+            return layout_docs
+        return self._add_fallback_section_metadata(docs)
+
+    def _add_layout_section_metadata(self, docs: List[Document]) -> List[Document]:
+        """Infer hierarchy from PDF layout styles discovered by PyMuPDF."""
+        section_docs: List[Document] = []
+        sources = self._ordered_sources(docs)
+
+        for source in sources:
+            pdf_path = Path(source)
+            if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
+                continue
+
+            try:
+                pdf = fitz.open(pdf_path)
+            except Exception:
+                continue
+
+            try:
+                source_title = pdf_path.stem
+                lines_by_page = self._extract_layout_lines(pdf)
+                toc_by_page = self._toc_hierarchy_by_page(pdf)
+                font_sizes = [line["size"] for page in lines_by_page for line in page]
+                if not font_sizes:
+                    continue
+
+                body_size = _body_font_size(font_sizes)
+                heading_sizes = [
+                    line["size"]
+                    for page in lines_by_page
+                    for line in page
+                    if _is_layout_heading(line["text"], line["size"], body_size, line["bold"])
+                ]
+                if not heading_sizes:
+                    continue
+
+                hierarchy_by_level: Dict[int, str] = {}
+                buffer: List[str] = []
+                buffer_page = 0
+
+                def current_hierarchy() -> List[str]:
+                    hierarchy = [source_title]
+                    for level in sorted(hierarchy_by_level):
+                        hierarchy.append(hierarchy_by_level[level])
+                    return hierarchy
+
+                def flush_buffer() -> None:
+                    nonlocal buffer_page
+                    text = "\n".join(line for line in buffer if line.strip()).strip()
+                    if not text:
+                        buffer.clear()
+                        return
+
+                    hierarchy = current_hierarchy()
+                    metadata = _section_metadata(source, buffer_page, hierarchy)
+                    section_docs.append(Document(page_content=text, metadata=metadata))
+                    buffer.clear()
+
+                for page_number, page_lines in enumerate(lines_by_page):
+                    if page_number in toc_by_page:
+                        flush_buffer()
+                        hierarchy_by_level = toc_by_page[page_number].copy()
+
+                    for line in page_lines:
+                        text = line["text"]
+                        if _is_layout_heading(text, line["size"], body_size, line["bold"]):
+                            flush_buffer()
+                            level = _heading_level(line["size"], heading_sizes)
+                            if page_number in toc_by_page:
+                                level = max(level, len(toc_by_page[page_number]) + 1)
+                            hierarchy_by_level = {
+                                known_level: title
+                                for known_level, title in hierarchy_by_level.items()
+                                if known_level < level
+                            }
+                            hierarchy_by_level[level] = _clean_heading(text)
+                            buffer_page = page_number
+                            buffer.append(text)
+                            continue
+
+                        if not buffer:
+                            buffer_page = page_number
+                        buffer.append(text)
+
+                flush_buffer()
+            finally:
+                pdf.close()
+
+        return section_docs
+
+    def _extract_layout_lines(self, pdf: fitz.Document) -> List[List[dict]]:
+        """Extract page lines with text, font size and bold metadata."""
+        pages: List[List[dict]] = []
+        for page in pdf:
+            page_lines: List[dict] = []
+            text_dict = page.get_text("dict")
+            for block in text_dict.get("blocks", []):
+                for line in block.get("lines", []):
+                    text = _clean_heading(_line_text(line))
+                    if not text:
+                        continue
+                    page_lines.append({
+                        "text": text,
+                        "size": _line_size(line),
+                        "bold": _line_is_bold(line),
+                    })
+            pages.append(page_lines)
+        return pages
+
+    def _toc_hierarchy_by_page(self, pdf: fitz.Document) -> Dict[int, Dict[int, str]]:
+        """Build page-level hierarchy from PDF outline/bookmark metadata."""
+        toc = pdf.get_toc(simple=True)
+        toc_by_page: Dict[int, Dict[int, str]] = {}
+        active: Dict[int, str] = {}
+
+        for level, title, page_number in toc:
+            if page_number < 1:
+                continue
+
+            active = {known_level: value for known_level, value in active.items() if known_level < level}
+            active[level] = _clean_heading(title)
+            toc_by_page[page_number - 1] = active.copy()
+
+        return toc_by_page
+
+    def _ordered_sources(self, docs: List[Document]) -> List[str]:
+        """Keep PDF source order stable while de-duplicating pages from PyPDF loader."""
+        sources: List[str] = []
+        for doc in docs:
+            source = doc.metadata.get("source")
+            if source and source not in sources:
+                sources.append(source)
+        return sources
+
+    def _add_fallback_section_metadata(self, docs: List[Document]) -> List[Document]:
+        """Fallback splitter for already-loaded text without PDF layout metadata."""
+        section_docs: List[Document] = []
+        current_source = None
+        current_chapter = None
+        current_subsection = None
+
+        for doc in docs:
+            source = doc.metadata.get("source", "unknown.pdf")
+            page_number = doc.metadata.get("page", 0)
+            source_title = Path(source).stem if source else "unknown"
+
+            if source != current_source:
+                current_source = source
+                current_chapter = None
+                current_subsection = None
+
+            lines = [line.rstrip() for line in doc.page_content.splitlines()]
+            buffer: List[str] = []
+
+            def flush_buffer() -> None:
+                text = "\n".join(line for line in buffer if line.strip()).strip()
+                if not text:
+                    buffer.clear()
+                    return
+
+                hierarchy = [source_title]
+                if current_chapter:
+                    hierarchy.append(current_chapter)
+                if current_subsection:
+                    hierarchy.append(current_subsection)
+
+                metadata = {**doc.metadata, **_section_metadata(source, page_number, hierarchy)}
+                section_docs.append(Document(page_content=text, metadata=metadata))
+                buffer.clear()
+
+            for line in lines:
+                heading = _clean_heading(line)
+                if _is_probable_heading(heading):
+                    flush_buffer()
+                    if current_chapter and len(heading.split()) <= 4:
+                        current_subsection = heading
+                    else:
+                        current_chapter = heading
+                        current_subsection = None
+                    buffer.append(line)
+                    continue
+
+                buffer.append(line)
+
+            flush_buffer()
+
+        return section_docs
 
 
 class MedicalDocumentLoader:
     """Main orchestrator for loading, chunking and indexing medical PDFs."""
 
     def __init__(self):
+        from langchain_huggingface import HuggingFaceEmbeddings
+
         # Options:
         #   device="cpu"          → safest and most stable (what we use now)
         #   device="cuda"         → try this if you have ROCm / DirectML working
@@ -131,6 +431,8 @@ class MedicalDocumentLoader:
 
     def load_pdfs(self) -> List[Document]:
         """Load all PDFs from data/raw/."""
+        from langchain_community.document_loaders import PyPDFDirectoryLoader
+
         loader = PyPDFDirectoryLoader(str(Path("data/raw")))
         docs = loader.load()
         print(f"📄 Loaded {len(docs)} PDF documents from data/raw/")
@@ -142,6 +444,8 @@ class MedicalDocumentLoader:
         strategy_name: str = "hierarchical"
     ) -> FAISS:
         """Full pipeline: load → chunk → embed → persist FAISS index."""
+        from langchain_community.vectorstores import FAISS
+
         print(f"\n=== Starting {strategy_name.upper()} strategy ===")
 
         docs = self.load_pdfs()

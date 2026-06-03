@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "68d1ca8b68ea884a60e9060bb07a73ce3856c0cf6fd207e0356dc3a5ed816a5c"
+            "sha256": "bda426ae179b3b2a98f02dda09159e35c9345796bf389ba40ec91826897527dd"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -1590,6 +1590,22 @@
             ],
             "markers": "python_version >= '3.9'",
             "version": "==2.20.0"
+        },
+        "pymupdf": {
+            "hashes": [
+                "sha256:1dd460a3ae4597a755f00a3bd9771f5ebf1531dc111f6a36bf05dd00a6b84425",
+                "sha256:580983849c64a08d08344ca3d1580e87c01f046a8392421797bc850efd72a5b6",
+                "sha256:660d93cb6da5bbddf11d3982ae27745dd3a9902d9f24cdb69adab83962294b5a",
+                "sha256:77691604c5d1d0233827139bbcdea61fd57879c84712b8e49b1f45520f7ab9c2",
+                "sha256:7a92faa25129e8bbec5e50eeb9214f187665428c31b05c4ef6e36c58c0b1c6d2",
+                "sha256:857842b4888827bd6155a1131341b2822a7ebe9a8c15a975fd7d490d7a64a30c",
+                "sha256:a5c1088a87189891a4946ab314a14b7934ac4c5b6077f7e74ebee956f8906d0e",
+                "sha256:d20f68ef15195e073071dbc4ae7455257c7889af7584e39df490c0a92728526e",
+                "sha256:fc1bc3cae6e9e150b0dbb0a9221bdfd411d65f0db2fe359eaa22467d7cc2a05f"
+            ],
+            "index": "pypi",
+            "markers": "python_version >= '3.10'",
+            "version": "==1.27.2.3"
         },
         "pypdf": {
             "hashes": [

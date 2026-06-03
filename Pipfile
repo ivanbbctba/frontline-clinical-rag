@@ -17,6 +17,7 @@ pypdf = "*"
 tiktoken = "*"
 langchain-community = "*"
 langchain-huggingface = "*"
+pymupdf = "*"
 
 [dev-packages]
 pytest = "*"
