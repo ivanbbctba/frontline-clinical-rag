@@ -24,7 +24,7 @@ from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from pydantic import ConfigDict, Field, model_validator
 
-from ..core.config import settings
+from src.frontline_clinical_rag.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,13 @@ def _normalize_chunk_type(value: Any) -> str:
         normalized = str(value).lower().strip().replace("-", "_")
     except Exception:
         return "section"
-    if normalized in {"warning", "warnings", "black_box", "boxed_warning", "safety_warning"}:
+    if normalized in {
+        "warning",
+        "warnings",
+        "black_box",
+        "boxed_warning",
+        "safety_warning",
+    }:
         return "warning"
     if normalized in {"table", "table_row", "clinical_table"}:
         return "table"
@@ -119,9 +125,13 @@ class MetadataAwareHybridRetriever(BaseRetriever):
         normalized_boosts: Dict[str, float] = {}
         for raw_key, value in self.boost_factors.items():
             if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ValueError(f"boost_factors values must be numeric, got {type(value)}")
+                raise ValueError(
+                    f"boost_factors values must be numeric, got {type(value)}"
+                )
             if not math.isfinite(value) or value <= 0:
-                raise ValueError(f"boost_factors must be positive finite numbers, got {value}")
+                raise ValueError(
+                    f"boost_factors must be positive finite numbers, got {value}"
+                )
             norm_key = _normalize_chunk_type(raw_key)
             normalized_boosts[norm_key] = float(value)
         self.boost_factors = normalized_boosts
@@ -145,14 +155,22 @@ class MetadataAwareHybridRetriever(BaseRetriever):
         query_lower = query_text.lower()
 
         original_bm25_k = getattr(self.bm25_retriever, "k", None)
-        config = {"callbacks": getattr(run_manager, "handlers", None)} if run_manager else None
+        config = (
+            {"callbacks": getattr(run_manager, "handlers", None)}
+            if run_manager
+            else None
+        )
 
         # Dense retrieval with fallback
         try:
-            dense_docs: List[Document] = self.vector_retriever.invoke(query_text, config=config, **kwargs)
+            dense_docs: List[Document] = self.vector_retriever.invoke(
+                query_text, config=config, **kwargs
+            )
             dense_docs = list(dense_docs or [])[: self.k_dense]
         except Exception as exc:
-            logger.warning("Dense retriever failed: %s. Continuing with sparse only.", exc)
+            logger.warning(
+                "Dense retriever failed: %s. Continuing with sparse only.", exc
+            )
             dense_docs = []
 
         # Sparse retrieval with exception handling + safe k mutation
@@ -160,10 +178,14 @@ class MetadataAwareHybridRetriever(BaseRetriever):
         try:
             if original_bm25_k is not None:
                 self.bm25_retriever.k = self.k_sparse
-            sparse_docs = self.bm25_retriever.invoke(query_text, config=config, **kwargs)
+            sparse_docs = self.bm25_retriever.invoke(
+                query_text, config=config, **kwargs
+            )
             sparse_docs = list(sparse_docs or [])
         except Exception as exc:
-            logger.warning("Sparse retriever failed: %s. Continuing with dense only.", exc)
+            logger.warning(
+                "Sparse retriever failed: %s. Continuing with dense only.", exc
+            )
             sparse_docs = []
         finally:
             if original_bm25_k is not None:
