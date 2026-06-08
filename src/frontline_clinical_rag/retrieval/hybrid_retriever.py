@@ -93,6 +93,10 @@ def _normalize_warning_level(value: Any) -> str:
         return ""
 
 
+def _normalize_query_for_safety_terms(value: str) -> str:
+    return str(value or "").lower().strip().replace(" ", "_").replace("-", "_")
+
+
 class MetadataAwareHybridRetriever(BaseRetriever):
     """Hybrid retriever using RRF + metadata boosting for clinical documents.
 
@@ -117,6 +121,9 @@ class MetadataAwareHybridRetriever(BaseRetriever):
     )
     safety_query_terms: List[str] = Field(
         default_factory=lambda: settings.retriever_safety_query_terms.copy()
+    )
+    safety_downweight_factor: float = Field(
+        default_factory=lambda: settings.retriever_safety_downweight_factor
     )
     enable_metadata_filter: bool = Field(True)
 
@@ -143,8 +150,18 @@ class MetadataAwareHybridRetriever(BaseRetriever):
         self.safety_query_terms = [
             normalized
             for item in self.safety_query_terms
-            if (normalized := str(item).lower().strip())
+            if (normalized := _normalize_query_for_safety_terms(str(item)))
         ]
+        if (
+            isinstance(self.safety_downweight_factor, bool)
+            or not isinstance(self.safety_downweight_factor, (int, float))
+            or not math.isfinite(self.safety_downweight_factor)
+            or self.safety_downweight_factor <= 0
+        ):
+            raise ValueError(
+                "safety_downweight_factor must be a positive finite number"
+            )
+        self.safety_downweight_factor = float(self.safety_downweight_factor)
         return self
 
     def _get_relevant_documents(
@@ -152,7 +169,6 @@ class MetadataAwareHybridRetriever(BaseRetriever):
     ) -> List[Document]:
         """Execute hybrid retrieval."""
         query_text = str(query or "")
-        query_lower = query_text.lower()
 
         original_bm25_k = getattr(self.bm25_retriever, "k", None)
         config = (
@@ -193,19 +209,22 @@ class MetadataAwareHybridRetriever(BaseRetriever):
 
         # RRF + boost
         rrf_results = _reciprocal_rank_fusion(dense_docs, sparse_docs, k=self.rrf_k)
+        max_rrf_score = max((score for score, _ in rrf_results), default=1.0)
+        query_normalized = _normalize_query_for_safety_terms(query_text)
 
         scored: List[Tuple[float, Document]] = []
         for rrf_score, doc in rrf_results:
             chunk_type = _normalize_chunk_type(doc.metadata.get("chunk_type"))
             boost = self.boost_factors.get(chunk_type, 1.0)
-            final_score = rrf_score * boost
+            normalized_score = rrf_score / max_rrf_score if max_rrf_score > 0 else 0.0
+            final_score = normalized_score * boost
 
             if self.enable_metadata_filter:
                 wl = _normalize_warning_level(doc.metadata.get("warning_level"))
                 if wl in self.safety_warning_levels and not any(
-                    term in query_lower for term in self.safety_query_terms
+                    term in query_normalized for term in self.safety_query_terms
                 ):
-                    final_score *= 0.55
+                    final_score *= self.safety_downweight_factor
 
             new_metadata = {**doc.metadata, "retrieval_score": round(final_score, 6)}
             new_doc = Document(page_content=doc.page_content, metadata=new_metadata)

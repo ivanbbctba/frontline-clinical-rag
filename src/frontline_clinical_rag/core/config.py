@@ -56,6 +56,7 @@ class Settings(BaseSettings):
             "toxicity",
         ]
     )
+    retriever_safety_downweight_factor: float = 0.55
     # Example .env override for the dict (valid JSON):
     # FRONTLINE_RETRIEVER_BOOST_FACTORS='{"warning": 2.0, "table": 1.3}'
 
