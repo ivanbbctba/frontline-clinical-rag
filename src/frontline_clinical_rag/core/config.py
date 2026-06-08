@@ -36,7 +36,9 @@ class OpenAIConfig(BaseSettings):
     )
     organization: str | None = Field(None)
 
-    model_config = SettingsConfigDict(env_prefix="OPENAI_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="OPENAI_", env_file=".env", extra="ignore"
+    )
 
 
 class EmbeddingConfig(BaseSettings):
@@ -50,7 +52,9 @@ class EmbeddingConfig(BaseSettings):
     batch_size: int = Field(100, description="Batch size for embedding calls")
     device: str = Field("cpu", description="Device for local embedding models")
 
-    model_config = SettingsConfigDict(env_prefix="EMBEDDING_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="EMBEDDING_", env_file=".env", extra="ignore"
+    )
 
 
 class VectorStoreConfig(BaseSettings):
@@ -67,9 +71,13 @@ class VectorStoreConfig(BaseSettings):
         "merck_manual_clinical",
         description="Collection / index name inside the vector store",
     )
-    distance_metric: str = Field("cosine", description="Distance function used by the store")
+    distance_metric: str = Field(
+        "cosine", description="Distance function used by the store"
+    )
 
-    model_config = SettingsConfigDict(env_prefix="VECTOR_STORE_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="VECTOR_STORE_", env_file=".env", extra="ignore"
+    )
 
     @field_validator("persist_directory")
     @classmethod
@@ -112,7 +120,9 @@ class RetrievalConfig(BaseSettings):
     safety_downweight_factor: float = Field(0.55)
     chunk_overlap_for_context: int = Field(200)
 
-    model_config = SettingsConfigDict(env_prefix="RETRIEVAL_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="RETRIEVAL_", env_file=".env", extra="ignore"
+    )
 
 
 class SafetyConfig(BaseSettings):
@@ -125,7 +135,9 @@ class SafetyConfig(BaseSettings):
         "This is an AI-assisted decision support tool. All information must be verified against primary sources and clinical judgment. Not a substitute for professional medical advice."
     )
 
-    model_config = SettingsConfigDict(env_prefix="SAFETY_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="SAFETY_", env_file=".env", extra="ignore"
+    )
 
 
 class AppConfig(BaseSettings):
@@ -137,7 +149,9 @@ class AppConfig(BaseSettings):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
 
-    project_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[3])
+    project_root: Path = Field(
+        default_factory=lambda: Path(__file__).resolve().parents[3]
+    )
     merck_pdf_path: Path = Field(
         default=Path("data/raw/Merk medical_diagnosis_manual-1-1999.pdf"),
         description="Path to the full Merck Manual PDF (large file, do not commit)",
