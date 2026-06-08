@@ -18,6 +18,7 @@ tiktoken = "*"
 langchain-community = "*"
 langchain-huggingface = "*"
 pymupdf = "*"
+rank-bm25 = "*"
 
 [dev-packages]
 pytest = "*"
