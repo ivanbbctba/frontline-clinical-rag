@@ -24,7 +24,7 @@ from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from pydantic import ConfigDict, Field, model_validator
 
-from src.frontline_clinical_rag.core.config import settings
+from src.frontline_clinical_rag.core.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ def _normalize_query_for_safety_terms(value: str) -> str:
 class MetadataAwareHybridRetriever(BaseRetriever):
     """Hybrid retriever using RRF + metadata boosting for clinical documents.
 
-    Defaults are sourced from core.config.settings (FRONTLINE_* env vars).
+    Defaults are sourced from core.config.get_config().retrieval.
     All parameters remain overridable in the constructor for full testability
     and experimentation.
     """
@@ -109,21 +109,21 @@ class MetadataAwareHybridRetriever(BaseRetriever):
 
     vector_retriever: BaseRetriever = Field(...)
     bm25_retriever: BaseRetriever = Field(...)
-    k_final: int = Field(default_factory=lambda: settings.retriever_k_final)
-    k_dense: int = Field(default_factory=lambda: settings.retriever_k_dense)
-    k_sparse: int = Field(default_factory=lambda: settings.retriever_k_sparse)
-    rrf_k: int = Field(default_factory=lambda: settings.retriever_rrf_k)
+    k_final: int = Field(default_factory=lambda: get_config().retrieval.top_k)
+    k_dense: int = Field(default_factory=lambda: get_config().retrieval.dense_top_k)
+    k_sparse: int = Field(default_factory=lambda: get_config().retrieval.sparse_top_k)
+    rrf_k: int = Field(default_factory=lambda: get_config().retrieval.rrf_k)
     boost_factors: Dict[str, float] = Field(
-        default_factory=lambda: settings.retriever_boost_factors.copy()
+        default_factory=lambda: get_config().retrieval.metadata_boosting.copy()
     )
     safety_warning_levels: List[str] = Field(
-        default_factory=lambda: settings.retriever_safety_warning_levels.copy()
+        default_factory=lambda: get_config().retrieval.safety_warning_levels.copy()
     )
     safety_query_terms: List[str] = Field(
-        default_factory=lambda: settings.retriever_safety_query_terms.copy()
+        default_factory=lambda: get_config().retrieval.safety_query_terms.copy()
     )
     safety_downweight_factor: float = Field(
-        default_factory=lambda: settings.retriever_safety_downweight_factor
+        default_factory=lambda: get_config().retrieval.safety_downweight_factor
     )
     enable_metadata_filter: bool = Field(True)
 
