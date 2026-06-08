@@ -27,7 +27,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tqdm import tqdm
 
-from src.frontline_clinical_rag.core.config import get_config
+from src.frontline_clinical_rag.core.config import AppConfig, get_config
 
 logger = logging.getLogger(__name__)
 
@@ -446,8 +446,8 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
 class MedicalDocumentLoader:
     """Main orchestrator for loading, chunking and indexing medical PDFs."""
 
-    def __init__(self):
-        config = get_config()
+    def __init__(self, config: AppConfig | None = None):
+        config = config or get_config()
 
         # Options:
         #   device="cpu"          → safest and most stable (what we use now)
@@ -459,7 +459,7 @@ class MedicalDocumentLoader:
         )
         self.embedding_model_name = config.embedding.model_name
         self.raw_data_path = config.raw_data_path
-        self.vector_store_path = Path(config.vector_store.persist_directory)
+        self.vector_store_path = Path(config.vector_store.persist_directory).parent
 
     def load_pdfs(self) -> List[Document]:
         """Load all PDFs from the configured raw data directory."""

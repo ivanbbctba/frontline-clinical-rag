@@ -23,12 +23,39 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class LLMConfig(BaseSettings):
+    """LLM provider settings.
+
+    Generation is intentionally not wired into ADR-005 yet, but the chosen
+    provider order is configured here so future chain assembly remains
+    explicit and reproducible.
+    """
+
+    provider: Literal["local", "xai"] = Field(
+        "local", validation_alias=AliasChoices("LLM_PROVIDER", "provider"), description="Primary LLM provider"
+    )
+    fallback_provider: Literal["xai"] = Field(
+        "xai", validation_alias=AliasChoices("LLM_FALLBACK_PROVIDER", "fallback_provider"), description="Fallback LLM provider"
+    )
+    local_base_url: str = Field(
+        "http://localhost:11434", validation_alias=AliasChoices("LLM_LOCAL_BASE_URL", "local_base_url"), description="Local OpenAI-compatible LLM URL"
+    )
+    local_model_name: str = Field("llama3.1", validation_alias=AliasChoices("LLM_LOCAL_MODEL_NAME", "local_model_name"), description="Local LLM model name")
+    xai_base_url: str = Field("https://api.x.ai/v1", validation_alias=AliasChoices("LLM_XAI_BASE_URL", "xai_base_url"), description="xAI API base URL")
+    xai_model_name: str = Field("grok-3-mini", validation_alias=AliasChoices("LLM_XAI_MODEL_NAME", "xai_model_name"), description="xAI fallback model")
+    api_key: str | None = Field(None, validation_alias=AliasChoices("LLM_API_KEY", "api_key"), description="xAI API key")
+
+    model_config = SettingsConfigDict(
+        env_prefix="LLM_", env_file=".env", extra="ignore"
+    )
+
+
 class OpenAIConfig(BaseSettings):
-    """OpenAI / LLM provider settings."""
+    """OpenAI-compatible provider settings retained for compatibility."""
 
     api_key: str | None = Field(None, description="OpenAI API key")
     base_url: str | None = Field(
@@ -45,12 +72,12 @@ class EmbeddingConfig(BaseSettings):
     """Embedding model configuration."""
 
     provider: Literal["openai", "local", "voyage"] = Field(
-        "local", description="Embedding provider"
+        "local", validation_alias=AliasChoices("EMBEDDING_PROVIDER", "provider"), description="Embedding provider"
     )
-    model_name: str = Field("BAAI/bge-m3", description="Model identifier")
-    dimensions: int = Field(1536, description="Output vector dimension")
-    batch_size: int = Field(100, description="Batch size for embedding calls")
-    device: str = Field("cpu", description="Device for local embedding models")
+    model_name: str = Field("BAAI/bge-m3", validation_alias=AliasChoices("EMBEDDING_MODEL_NAME", "model_name"), description="Model identifier")
+    dimensions: int = Field(1024, validation_alias=AliasChoices("EMBEDDING_DIMENSIONS", "dimensions"), description="Output vector dimension")
+    batch_size: int = Field(100, validation_alias=AliasChoices("EMBEDDING_BATCH_SIZE", "batch_size"), description="Batch size for embedding calls")
+    device: str = Field("cpu", validation_alias=AliasChoices("EMBEDDING_DEVICE", "device"), description="Device for local embedding models")
 
     model_config = SettingsConfigDict(
         env_prefix="EMBEDDING_", env_file=".env", extra="ignore"
@@ -65,6 +92,7 @@ class VectorStoreConfig(BaseSettings):
     )
     persist_directory: str = Field(
         "data/vector_store/faiss_index",
+        validation_alias="path",
         description="Directory for persisted index (git-ignored in production)",
     )
     collection_name: str = Field(
@@ -89,10 +117,10 @@ class VectorStoreConfig(BaseSettings):
 class RetrievalConfig(BaseSettings):
     """Retrieval strategy and quality parameters."""
 
-    top_k: int = Field(5, description="Number of documents to retrieve")
-    dense_top_k: int = Field(8, description="Number of dense results to retrieve")
-    sparse_top_k: int = Field(8, description="Number of sparse results to retrieve")
-    use_hybrid: bool = Field(False, description="Whether to use full hybrid retrieval")
+    top_k: int = Field(5, validation_alias="k_final", description="Number of documents to retrieve")
+    dense_top_k: int = Field(8, validation_alias="k_dense", description="Number of dense results to retrieve")
+    sparse_top_k: int = Field(8, validation_alias="k_sparse", description="Number of sparse results to retrieve")
+    use_hybrid: bool = Field(True, description="Whether to use full hybrid retrieval")
     rrf_k: int = Field(60, description="Reciprocal Rank Fusion constant")
     metadata_boosting: dict[str, float] = Field(
         default_factory=lambda: {
@@ -121,7 +149,7 @@ class RetrievalConfig(BaseSettings):
     chunk_overlap_for_context: int = Field(200)
 
     model_config = SettingsConfigDict(
-        env_prefix="RETRIEVAL_", env_file=".env", extra="ignore"
+        env_prefix="RETRIEVER_", env_file=".env", extra="ignore"
     )
 
 
@@ -143,10 +171,11 @@ class SafetyConfig(BaseSettings):
 class AppConfig(BaseSettings):
     """Root configuration object — the single source of truth."""
 
+    llm: LLMConfig = Field(default_factory=LLMConfig)
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     vector_store: VectorStoreConfig = Field(default_factory=VectorStoreConfig)
-    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig, alias="retriever")
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
 
     project_root: Path = Field(
@@ -162,8 +191,9 @@ class AppConfig(BaseSettings):
     max_heading_length: int = Field(140)
 
     model_config = SettingsConfigDict(
+        env_prefix="FRONTLINE_",
         env_file=".env",
-        env_nested_delimiter="__",
+        env_nested_delimiter="_",
         extra="ignore",
         arbitrary_types_allowed=True,
     )
