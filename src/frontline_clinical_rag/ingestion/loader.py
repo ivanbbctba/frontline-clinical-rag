@@ -27,7 +27,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tqdm import tqdm
 
-from src.frontline_clinical_rag.core.config import settings
+from src.frontline_clinical_rag.core.config import AppConfig, get_config
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ def _clean_heading(text: str) -> str:
 def _is_probable_heading(text: str) -> bool:
     """Fallback heading detector for documents without PyMuPDF layout data."""
     heading = _clean_heading(text)
-    if not heading or len(heading) > settings.max_heading_length:
+    if not heading or len(heading) > get_config().max_heading_length:
         return False
 
     words = heading.split()
@@ -130,7 +130,7 @@ def _line_is_bold(block: dict) -> bool:
 def _is_layout_heading(text: str, size: float, body_size: float, is_bold: bool) -> bool:
     """Detect headings from document layout, not from hardcoded medical titles."""
     heading = _clean_heading(text)
-    if not heading or len(heading) > settings.max_heading_length:
+    if not heading or len(heading) > get_config().max_heading_length:
         return False
     if heading.isdigit() or heading.count(".") >= 4:
         return False
@@ -183,8 +183,8 @@ class RecursiveMedicalChunker(BaseMedicalChunker):
     def split_documents(self, docs: List[Document]) -> List[Document]:
 
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
+            chunk_size=get_config().chunk_size,
+            chunk_overlap=get_config().chunk_overlap,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
         return splitter.split_documents(docs)
@@ -203,8 +203,8 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
         section_docs = self._add_section_metadata(docs)
 
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
+            chunk_size=get_config().chunk_size,
+            chunk_overlap=get_config().chunk_overlap,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
 
@@ -446,22 +446,25 @@ class HierarchicalMedicalChunker(BaseMedicalChunker):
 class MedicalDocumentLoader:
     """Main orchestrator for loading, chunking and indexing medical PDFs."""
 
-    def __init__(self):
+    def __init__(self, config: AppConfig | None = None):
+        config = config or get_config()
 
         # Options:
         #   device="cpu"          → safest and most stable (what we use now)
         #   device="cuda"         → try this if you have ROCm / DirectML working
         #   device="mps"          → not supported on AMD Windows
         self.embeddings = HuggingFaceEmbeddings(
-            model_name=settings.embedding_model,
-            model_kwargs={"device": settings.embedding_device},
+            model_name=config.embedding.model_name,
+            model_kwargs={"device": config.embedding.device},
         )
-        self.vector_store_path = settings.faiss_index_path
+        self.embedding_model_name = config.embedding.model_name
+        self.raw_data_path = config.raw_data_path
+        self.vector_store_path = Path(config.vector_store.persist_directory).parent
 
     def load_pdfs(self) -> List[Document]:
         """Load all PDFs from the configured raw data directory."""
 
-        raw_path = Path(settings.raw_data_path)
+        raw_path = Path(self.raw_data_path)
         loader = PyPDFDirectoryLoader(str(raw_path))
         docs = loader.load()
         print(f"📄 Loaded {len(docs)} PDF documents from {raw_path}")
@@ -478,7 +481,7 @@ class MedicalDocumentLoader:
         chunks = chunker.split_documents(docs)
 
         print(f"   → Created {len(chunks)} chunks")
-        print(f"   → Embedding with {settings.embedding_model}...")
+        print(f"   → Embedding with {self.embedding_model_name}...")
 
         vector_store = FAISS.from_documents(
             tqdm(chunks, desc="Embedding chunks", unit="chunk"), self.embeddings
