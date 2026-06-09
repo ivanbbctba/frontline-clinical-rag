@@ -92,7 +92,7 @@ class VectorStoreConfig(BaseSettings):
     )
     persist_directory: str = Field(
         "data/vector_store/faiss_index",
-        validation_alias="path",
+        validation_alias=AliasChoices("VECTOR_STORE_PATH", "persist_directory"),
         description="Directory for persisted index (git-ignored in production)",
     )
     collection_name: str = Field(

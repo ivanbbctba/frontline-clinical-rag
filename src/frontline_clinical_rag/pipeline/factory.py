@@ -15,32 +15,39 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 from src.frontline_clinical_rag.core.config import AppConfig, get_config
 from src.frontline_clinical_rag.ingestion.loader import (
-    HierarchicalMedicalChunker, MedicalDocumentLoader)
+    HierarchicalMedicalChunker, MedicalDocumentLoader, RecursiveMedicalChunker)
 from src.frontline_clinical_rag.retrieval.hybrid_retriever import \
     MetadataAwareHybridRetriever
 
 
 def create_hybrid_retriever(
-    config: AppConfig | None = None, *, force_rebuild_index: bool = False
+    config: AppConfig | None = None, 
+    *, 
+    strategy: str | None = None,
+    force_rebuild_index: bool = False
 ) -> MetadataAwareHybridRetriever:
     """Create a configured metadata-aware hybrid retriever.
 
     Args:
         config: Optional configuration override for tests and experiments.
+        strategy: Optional strategy name ('hierarchical' or 'recursive').
         force_rebuild_index: Rebuild the FAISS index from configured PDFs.
     """
 
     resolved_config = config or get_config()
-    return _get_hybrid_retriever(resolved_config, force_rebuild=force_rebuild_index)
+    return _get_hybrid_retriever(resolved_config, strategy=strategy, force_rebuild=force_rebuild_index)
 
 
 def _get_hybrid_retriever(
-    config: AppConfig, *, force_rebuild: bool = False
+    config: AppConfig, 
+    *, 
+    strategy: str | None = None,
+    force_rebuild: bool = False
 ) -> MetadataAwareHybridRetriever:
     if not config.retrieval.use_hybrid:
         raise ValueError("ADR-005 factory requires retrieval.use_hybrid=True")
 
-    vectorstore = _get_or_create_vectorstore(config, force_rebuild=force_rebuild)
+    vectorstore = _get_or_create_vectorstore(config, strategy=strategy, force_rebuild=force_rebuild)
     dense_retriever = vectorstore.as_retriever(
         search_type="similarity",
         search_kwargs={"k": config.retrieval.dense_top_k},
@@ -67,7 +74,10 @@ def _get_hybrid_retriever(
 
 
 def _get_or_create_vectorstore(
-    config: AppConfig, *, force_rebuild: bool = False
+    config: AppConfig, 
+    *, 
+    strategy: str | None = None,
+    force_rebuild: bool = False
 ) -> FAISS:
     if config.vector_store.backend != "faiss":
         raise ValueError("ADR-005 is configured for FAISS vector stores")
@@ -76,12 +86,25 @@ def _get_or_create_vectorstore(
 
     embeddings = _create_embeddings(config)
     persist_dir = Path(config.vector_store.persist_directory)
-    # Strategy-aware loading: check both the base dir and the strategy subfolder
-    index_path = persist_dir
-    if not (index_path / "index.faiss").exists():
-        # Fallback to hierarchical if it's a known strategy subfolder
-        if (persist_dir / "hierarchical" / "index.faiss").exists():
-            index_path = persist_dir / "hierarchical"
+    
+    # Determine the index path based on strategy
+    if strategy:
+        # If strategy is provided, look in the strategy subfolder if it exists,
+        # otherwise assume it might be the persist_dir itself if it matches the name
+        if (persist_dir / strategy / "index.faiss").exists():
+            index_path = persist_dir / strategy
+        elif persist_dir.name == strategy and (persist_dir / "index.faiss").exists():
+            index_path = persist_dir
+        else:
+            # Fallback to strategy subfolder even if it doesn't exist (for creation)
+            index_path = persist_dir / strategy
+    else:
+        # Strategy-aware loading: check both the base dir and the strategy subfolder
+        index_path = persist_dir
+        if not (index_path / "index.faiss").exists():
+            # Fallback to hierarchical if it's a known strategy subfolder
+            if (persist_dir / "hierarchical" / "index.faiss").exists():
+                index_path = persist_dir / "hierarchical"
 
     if not force_rebuild and (index_path / "index.faiss").exists():
         return FAISS.load_local(
@@ -97,15 +120,22 @@ def _get_or_create_vectorstore(
     loader.embedding_model_name = config.embedding.model_name
     loader.raw_data_path = config.raw_data_path
     
-    # Ensure loader uses the correct parent directory if we are using a strategy subfolder
-    if persist_dir.name in ["hierarchical", "recursive"]:
+    # Determine strategy name and loader path
+    if strategy:
+        strategy_name = strategy
+        loader.vector_store_path = persist_dir if persist_dir.name != strategy else persist_dir.parent
+    elif persist_dir.name in ["hierarchical", "recursive"]:
         loader.vector_store_path = persist_dir.parent
         strategy_name = persist_dir.name
     else:
         loader.vector_store_path = persist_dir
         strategy_name = "hierarchical"
         
-    chunker = HierarchicalMedicalChunker()
+    if strategy_name == "recursive":
+        chunker = RecursiveMedicalChunker()
+    else:
+        chunker = HierarchicalMedicalChunker()
+        
     return loader.create_vector_store(chunker, strategy_name)
 
 

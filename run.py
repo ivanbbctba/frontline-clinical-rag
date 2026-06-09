@@ -1,3 +1,4 @@
+from pathlib import Path
 from dotenv import load_dotenv
 
 from src.frontline_clinical_rag.pipeline import create_hybrid_retriever
@@ -19,20 +20,51 @@ CLINICAL_QUESTIONS = [
 
 
 def _format_source(metadata: dict) -> str:
-    title = metadata.get("source_title") or metadata.get("source") or "Unknown source"
+    source = metadata.get("source") or "Unknown"
+    title = metadata.get("source_title") or (Path(source).stem if source != "Unknown" else "Unknown source")
     hierarchy = metadata.get("section_hierarchy") or []
     section = " > ".join(hierarchy) if isinstance(hierarchy, list) else str(hierarchy)
-    page = metadata.get("page_number") or metadata.get("page") or "unknown"
-    return f"Source: {title} - Section: {section or 'unknown'} - Page {page}"
+
+    page = metadata.get("page_number")
+    if page is None:
+        page = metadata.get("page")
+        if page is not None:
+            try:
+                page = int(page) + 1  # Assume 0-indexed if it's 'page' from LangChain
+            except (ValueError, TypeError):
+                pass
+
+    return f"Source: {title} - Section: {section or 'unknown'} - Page {page or 'unknown'}"
 
 
 def main() -> None:
-    retriever = create_hybrid_retriever()
+    print("Initializing Hierarchical Retriever...")
+    hierarchical_retriever = create_hybrid_retriever(strategy="hierarchical")
+
+    print("Initializing Recursive Retriever...")
+    recursive_retriever = create_hybrid_retriever(strategy="recursive")
+
     for question in CLINICAL_QUESTIONS:
-        print(f"\n## Question: {question}")
-        for index, doc in enumerate(retriever.invoke(question), start=1):
-            print(f"\n[{index}] {_format_source(doc.metadata)}")
-            print(doc.page_content[:700].replace("\n", " "))
+        print(f"\n" + "="*100)
+        print(f"QUESTION: {question}")
+        print("="*100)
+
+        # Hierarchical Results
+        print("\n[ STRATEGY: HIERARCHICAL ]")
+        h_docs = hierarchical_retriever.invoke(question)
+        for index, doc in enumerate(h_docs, start=1):
+            print(f"\n  ({index}) {_format_source(doc.metadata)}")
+            # Show first 400 chars for comparison
+            content = doc.page_content.strip().replace("\n", " ")
+            print(f"      {content[:400]}...")
+
+        # Recursive Results
+        print("\n[ STRATEGY: RECURSIVE ]")
+        r_docs = recursive_retriever.invoke(question)
+        for index, doc in enumerate(r_docs, start=1):
+            print(f"\n  ({index}) {_format_source(doc.metadata)}")
+            content = doc.page_content.strip().replace("\n", " ")
+            print(f"      {content[:400]}...")
 
 
 if __name__ == "__main__":
