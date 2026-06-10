@@ -18,13 +18,18 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from langchain_community.retrievers import BM25Retriever
+from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
+from langchain_huggingface import HuggingFaceEmbeddings
 from pydantic import ConfigDict, Field, model_validator
 
-from src.frontline_clinical_rag.core.config import get_config
+from src.frontline_clinical_rag.core.config import AppConfig, get_config
+from src.frontline_clinical_rag.ingestion.loader import MedicalDocumentLoader
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +100,108 @@ def _normalize_warning_level(value: Any) -> str:
 
 def _normalize_query_for_safety_terms(value: str) -> str:
     return str(value or "").lower().strip().replace(" ", "_").replace("-", "_")
+
+
+def _build_hybrid_retriever(
+    config: AppConfig,
+    *,
+    strategy: str,
+    chunker: Any,
+    force_rebuild_index: bool = False,
+) -> MetadataAwareHybridRetriever:
+    """Assemble a strategy-specific hybrid retriever (ADR-005 retrieval layer)."""
+
+    if not config.retrieval.use_hybrid:
+        raise ValueError("ADR-005 factory requires retrieval.use_hybrid=True")
+
+    vectorstore = _get_or_create_vectorstore(
+        config,
+        strategy=strategy,
+        chunker=chunker,
+        force_rebuild=force_rebuild_index,
+    )
+    dense_retriever = vectorstore.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": config.retrieval.dense_top_k},
+    )
+    docs = _extract_documents_from_vectorstore(vectorstore)
+    if not docs:
+        raise ValueError("Cannot create BM25 retriever from an empty vector store")
+
+    bm25_retriever = BM25Retriever.from_documents(docs)
+    bm25_retriever.k = config.retrieval.sparse_top_k
+
+    return MetadataAwareHybridRetriever(
+        vector_retriever=dense_retriever,
+        bm25_retriever=bm25_retriever,
+        k_final=config.retrieval.top_k,
+        k_dense=config.retrieval.dense_top_k,
+        k_sparse=config.retrieval.sparse_top_k,
+        rrf_k=config.retrieval.rrf_k,
+        boost_factors=config.retrieval.metadata_boosting,
+        safety_warning_levels=config.retrieval.safety_warning_levels,
+        safety_query_terms=config.retrieval.safety_query_terms,
+        safety_downweight_factor=config.retrieval.safety_downweight_factor,
+    )
+
+
+def _get_or_create_vectorstore(
+    config: AppConfig,
+    *,
+    strategy: str,
+    chunker: Any,
+    force_rebuild: bool = False,
+) -> FAISS:
+    if config.vector_store.backend != "faiss":
+        raise ValueError("ADR-005 is configured for FAISS vector stores")
+    if config.embedding.provider != "local":
+        raise ValueError("ADR-005 is configured for local embeddings")
+
+    embeddings = _create_embeddings(config)
+    persist_dir = Path(config.vector_store.persist_directory)
+    index_path = _resolve_index_path(persist_dir, strategy)
+
+    if not force_rebuild and (index_path / "index.faiss").exists():
+        return FAISS.load_local(
+            str(index_path), embeddings, allow_dangerous_deserialization=True
+        )
+
+    pdfs = list(Path(config.raw_data_path).glob("*.pdf"))
+    if not pdfs:
+        raise FileNotFoundError(f"No PDF files found in {config.raw_data_path}")
+
+    loader = MedicalDocumentLoader(config)
+    loader.embeddings = embeddings
+    loader.embedding_model_name = config.embedding.model_name
+    loader.raw_data_path = config.raw_data_path
+    loader.vector_store_path = (
+        persist_dir if persist_dir.name != strategy else persist_dir.parent
+    )
+
+    return loader.create_vector_store(chunker, strategy)
+
+
+def _create_embeddings(config: AppConfig) -> HuggingFaceEmbeddings:
+    return HuggingFaceEmbeddings(
+        model_name=config.embedding.model_name,
+        model_kwargs={"device": config.embedding.device},
+    )
+
+
+def _extract_documents_from_vectorstore(vectorstore: Any) -> list[Any]:
+    docstore = getattr(vectorstore, "docstore", None)
+    raw_docs = getattr(docstore, "_dict", {}) if docstore is not None else {}
+    return list(raw_docs.values())
+
+
+def _resolve_index_path(persist_dir: Path, strategy: str) -> Path:
+    if (persist_dir / strategy / "index.faiss").exists():
+        return persist_dir / strategy
+    if persist_dir.name == strategy and (persist_dir / "index.faiss").exists():
+        return persist_dir
+    if (persist_dir / "index.faiss").exists():
+        return persist_dir
+    return persist_dir / strategy
 
 
 class MetadataAwareHybridRetriever(BaseRetriever):
