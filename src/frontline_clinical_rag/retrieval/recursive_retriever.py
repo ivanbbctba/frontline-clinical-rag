@@ -5,7 +5,9 @@ from __future__ import annotations
 from src.frontline_clinical_rag.core.config import AppConfig
 from src.frontline_clinical_rag.ingestion.loader import RecursiveMedicalChunker
 from src.frontline_clinical_rag.retrieval.hybrid_retriever import (
-    MetadataAwareHybridRetriever, _build_hybrid_retriever)
+    MetadataAwareHybridRetriever,
+    _build_hybrid_retriever,
+)
 
 
 def create_recursive_retriever(

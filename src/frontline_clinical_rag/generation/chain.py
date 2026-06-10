@@ -8,10 +8,12 @@ from typing import Any, Protocol
 from langsmith import traceable
 from pydantic import ValidationError
 
-from src.frontline_clinical_rag.generation.context import \
-    format_context_with_metadata
+from src.frontline_clinical_rag.generation.context import format_context_with_metadata
 from src.frontline_clinical_rag.generation.prompts import (
-    CLINICAL_SYSTEM_PROMPT, CLINICAL_USER_TEMPLATE, OUT_OF_KNOWLEDGE_BASE)
+    CLINICAL_SYSTEM_PROMPT,
+    CLINICAL_USER_TEMPLATE,
+    OUT_OF_KNOWLEDGE_BASE,
+)
 from src.frontline_clinical_rag.safety.schemas import ClinicalResponse
 
 

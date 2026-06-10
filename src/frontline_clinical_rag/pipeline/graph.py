@@ -19,7 +19,9 @@ from langgraph.graph import END, StateGraph
 from langsmith import traceable
 
 from src.frontline_clinical_rag.generation.chain import (
-    ClinicalLLM, generate_clinical_answer)
+    ClinicalLLM,
+    generate_clinical_answer,
+)
 from src.frontline_clinical_rag.safety.schemas import ClinicalResponse
 
 
@@ -50,8 +52,7 @@ def build_clinical_rag_graph(
     """Build the minimal ADR-007 Phase 1 clinical RAG StateGraph."""
 
     if retriever is None:
-        from src.frontline_clinical_rag.pipeline.factory import \
-            create_retriever
+        from src.frontline_clinical_rag.pipeline.factory import create_retriever
 
         resolved_retriever = create_retriever()
     else:
@@ -140,8 +141,7 @@ def _apply_safety_node(logger: GraphLogger | None):
         generated_response = state.get("generated_response")
         if generated_response is None:
             raise ValueError("apply_safety requires a generated ClinicalResponse.")
-        from src.frontline_clinical_rag.pipeline.factory import \
-            apply_safety_layer
+        from src.frontline_clinical_rag.pipeline.factory import apply_safety_layer
 
         safe_response = apply_safety_layer(
             generated_response,
