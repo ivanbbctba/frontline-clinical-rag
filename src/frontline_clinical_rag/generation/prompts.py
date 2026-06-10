@@ -53,7 +53,8 @@ Your core mandate is **strict grounding and clinical safety**.
     {{
       "title": "string — chapter or section title",
       "page": "string or integer — page number",
-      "section": "string — optional hierarchical section path from metadata"
+      "section": "string — optional hierarchical section path from metadata",
+      "excerpt": "string — short relevant excerpt from the chunk (max 300 chars)"
     }}
   ],
   "disclaimer": "{CLINICAL_DISCLAIMER}",
