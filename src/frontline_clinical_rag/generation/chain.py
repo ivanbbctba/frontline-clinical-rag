@@ -60,12 +60,8 @@ def generate_clinical_answer(
     }
 
     try:
-        raw_output = llm.invoke(
-            messages,
-            run_name=run_name,
-            tags=tags or [],
-            metadata=trace_metadata,
-        )
+        raw_output = llm.invoke(messages)
+
         return _parse_clinical_response(_content_from_llm_output(raw_output))
     except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
         return _fallback_response(question, documents, exc)

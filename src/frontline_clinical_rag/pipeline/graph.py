@@ -18,10 +18,7 @@ from typing import Any, Callable, NotRequired, TypedDict
 from langgraph.graph import END, StateGraph
 from langsmith import traceable
 
-from src.frontline_clinical_rag.generation.chain import (
-    ClinicalLLM,
-    generate_clinical_answer,
-)
+from src.frontline_clinical_rag.generation.chain import ClinicalLLM, generate_clinical_answer
 from src.frontline_clinical_rag.safety.schemas import ClinicalResponse
 
 
