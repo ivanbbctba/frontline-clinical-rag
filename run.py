@@ -1,16 +1,17 @@
 from pathlib import Path
 from dotenv import load_dotenv
 
-from src.frontline_clinical_rag.pipeline import create_hybrid_retriever
+from src.frontline_clinical_rag.core.config import get_config
+from src.frontline_clinical_rag.pipeline.factory import create_retriever
 
 load_dotenv()
 
 
 CLINICAL_QUESTIONS = [
-    "What are urgent warning signs for chest pain?",
-    "What are common causes of acute shortness of breath?",
-    "What red flags should be considered for severe headache?",
-    "What information is relevant for evaluating abdominal pain with fever?",
+    #"What are urgent warning signs for chest pain?",
+    #"What are common causes of acute shortness of breath?",
+    #"What red flags should be considered for severe headache?",
+    #"What information is relevant for evaluating abdominal pain with fever?",
     "What is the protocol for managing sepsis in a critical care unit?",
     "What are the common symptoms for appendicitis, and can it be cured via medicine? If not, what surgical procedure should be followed to treat it?",
     "What are the effective treatments or solutions for addressing sudden patchy hair loss, commonly seen as localized bald spots on the scalp, and what could be the possible causes behind it?",
@@ -38,33 +39,26 @@ def _format_source(metadata: dict) -> str:
 
 
 def main() -> None:
-    print("Initializing Hierarchical Retriever...")
-    hierarchical_retriever = create_hybrid_retriever(strategy="hierarchical")
-
-    print("Initializing Recursive Retriever...")
-    recursive_retriever = create_hybrid_retriever(strategy="recursive")
+    config = get_config()
+    retrievers = {}
+    for strategy in ("hierarchical", "recursive"):
+        strategy_config = config.model_copy(deep=True)
+        strategy_config.retrieval.strategy = strategy
+        print(f"Initializing {strategy.title()} Retriever...")
+        retrievers[strategy] = create_retriever(strategy_config)
 
     for question in CLINICAL_QUESTIONS:
         print(f"\n" + "="*100)
         print(f"QUESTION: {question}")
         print("="*100)
 
-        # Hierarchical Results
-        print("\n[ STRATEGY: HIERARCHICAL ]")
-        h_docs = hierarchical_retriever.invoke(question)
-        for index, doc in enumerate(h_docs, start=1):
-            print(f"\n  ({index}) {_format_source(doc.metadata)}")
-            # Show first 400 chars for comparison
-            content = doc.page_content.strip().replace("\n", " ")
-            print(f"      {content[:400]}...")
-
-        # Recursive Results
-        print("\n[ STRATEGY: RECURSIVE ]")
-        r_docs = recursive_retriever.invoke(question)
-        for index, doc in enumerate(r_docs, start=1):
-            print(f"\n  ({index}) {_format_source(doc.metadata)}")
-            content = doc.page_content.strip().replace("\n", " ")
-            print(f"      {content[:400]}...")
+        for strategy, retriever in retrievers.items():
+            print(f"\n[ STRATEGY: {strategy.upper()} ]")
+            docs = retriever.invoke(question)
+            for index, doc in enumerate(docs, start=1):
+                print(f"\n  ({index}) {_format_source(doc.metadata)}")
+                content = doc.page_content.strip().replace("\n", " ")
+                print(f"      {content}...")
 
 
 if __name__ == "__main__":
