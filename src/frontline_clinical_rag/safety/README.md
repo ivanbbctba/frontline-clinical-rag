@@ -11,6 +11,8 @@ The layer is designed for trained medical professionals: it does not refuse high
 - `critic.py` provides a deterministic Phase 1 `SafetyCritic` interface that can later become a LangGraph node using the shared `SAFETY_CRITIC_SYSTEM_PROMPT`.
 - `prompts.py` is the safety package's single source of truth for guardrail keywords and critic prompt text.
 
+Pipeline code should apply this layer after answer generation by passing a `ClinicalResponse` and retrieved context to `pipeline.factory.apply_safety_layer()`.
+
 ## Phase 2 TODOs
 
 - Wire `SafetyCritic.build_llm_messages()` into a full LangGraph generation pipeline.
