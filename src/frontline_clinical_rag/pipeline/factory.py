@@ -12,11 +12,41 @@ from typing import Any
 from langchain_core.retrievers import BaseRetriever
 
 from src.frontline_clinical_rag.core.config import AppConfig, get_config
-from src.frontline_clinical_rag.retrieval.hierarchical_retriever import \
-    create_hierarchical_retriever
-from src.frontline_clinical_rag.retrieval.recursive_retriever import \
-    create_recursive_retriever
 from src.frontline_clinical_rag.safety import ClinicalResponse, SafetyCritic
+
+
+def create_hierarchical_retriever(
+    config: AppConfig,
+    *,
+    force_rebuild_index: bool = False,
+) -> BaseRetriever:
+    """Lazily delegate hierarchical retriever construction."""
+
+    from src.frontline_clinical_rag.retrieval.hierarchical_retriever import (
+        create_hierarchical_retriever as _create_hierarchical_retriever,
+    )
+
+    return _create_hierarchical_retriever(
+        config,
+        force_rebuild_index=force_rebuild_index,
+    )
+
+
+def create_recursive_retriever(
+    config: AppConfig,
+    *,
+    force_rebuild_index: bool = False,
+) -> BaseRetriever:
+    """Lazily delegate recursive retriever construction."""
+
+    from src.frontline_clinical_rag.retrieval.recursive_retriever import (
+        create_recursive_retriever as _create_recursive_retriever,
+    )
+
+    return _create_recursive_retriever(
+        config,
+        force_rebuild_index=force_rebuild_index,
+    )
 
 
 def create_retriever(config: AppConfig | None = None) -> BaseRetriever:

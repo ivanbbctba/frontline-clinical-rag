@@ -19,6 +19,8 @@ langchain-community = "*"
 langchain-huggingface = "*"
 pymupdf = "*"
 rank-bm25 = "*"
+langgraph = "*"
+langsmith = "*"
 
 [dev-packages]
 pytest = "*"
