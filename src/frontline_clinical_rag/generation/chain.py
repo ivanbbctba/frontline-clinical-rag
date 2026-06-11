@@ -52,12 +52,6 @@ def generate_clinical_answer(
             ),
         },
     ]
-    trace_metadata = {
-        "question": question,
-        "document_count": len(documents),
-        "warning_level_detected": _warning_level_summary(documents),
-        **(metadata or {}),
-    }
 
     try:
         raw_output = llm.invoke(messages)
@@ -106,6 +100,14 @@ def _fallback_response(
         ),
         confidence=0.0,
         requires_human_review=True,
+        uncertainty_note=(
+            "The model output could not be parsed into the ClinicalResponse "
+            "schema; treat retrieved context as the authoritative reference."
+        ),
+        recommended_next_steps=[
+            "Review the retrieved Merck Manual excerpts directly before clinical action.",
+            "Re-run the query or escalate to a human reviewer if the answer is needed urgently.",
+        ],
     )
 
 

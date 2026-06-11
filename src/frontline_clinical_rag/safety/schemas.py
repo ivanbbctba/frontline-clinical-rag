@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -31,7 +31,15 @@ class ClinicalResponse(BaseModel):
     The schema keeps disclaimer, citation, warning, confidence, and review flags
     explicit so downstream formatters and future LangGraph nodes can audit every
     generated answer before it is shown to a medical professional.
+
+    Phase-1 uncertainty fields (``uncertainty_note``, ``key_findings_to_verify``,
+    ``recommended_next_steps``) let the model communicate partial confidence in a
+    structured way instead of collapsing into a binary "answer or refuse"
+    posture. They are optional and default to empty so existing callers and
+    upstream models that ignore them remain compatible.
     """
+
+    LOW_CONFIDENCE_THRESHOLD: ClassVar[float] = 0.5
 
     answer: str
     sources: list[dict[str, Any]] = Field(default_factory=list)
@@ -41,6 +49,9 @@ class ClinicalResponse(BaseModel):
     warning_level_summary: str
     confidence: float = Field(ge=0.0, le=1.0)
     requires_human_review: bool
+    uncertainty_note: str | None = None
+    key_findings_to_verify: list[str] = Field(default_factory=list)
+    recommended_next_steps: list[str] = Field(default_factory=list)
 
     @classmethod
     def default_disclaimer(cls) -> str:
@@ -63,6 +74,31 @@ class ClinicalResponse(BaseModel):
             raise ValueError("field must be non-empty")
         return cleaned
 
+    @field_validator("uncertainty_note", mode="before")
+    @classmethod
+    def normalize_uncertainty_note(cls, value: Any) -> str | None:
+        """Treat empty / whitespace-only uncertainty notes as absent."""
+
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
+    @field_validator("key_findings_to_verify", "recommended_next_steps", mode="before")
+    @classmethod
+    def normalize_optional_string_list(cls, value: Any) -> list[str]:
+        """Coerce missing / scalar values into a deduplicated, trimmed list."""
+
+        if value in (None, "", []):
+            return []
+        if isinstance(value, str):
+            items: list[str] = [value]
+        elif isinstance(value, (list, tuple)):
+            items = [str(item) for item in value]
+        else:
+            raise ValueError("expected a list of strings")
+        return [item.strip() for item in items if item and item.strip()]
+
     @field_validator("sources")
     @classmethod
     def validate_sources(cls, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -78,6 +114,22 @@ class ClinicalResponse(BaseModel):
             raise ValueError("substantial clinical answers require at least one source")
         return self
 
+    @model_validator(mode="after")
+    def escalate_review_when_uncertain(self) -> ClinicalResponse:
+        """Force ``requires_human_review`` on when uncertainty is signaled.
+
+        We do not flip the flag back off — the LLM (or upstream caller) is free
+        to declare an answer review-worthy for reasons we cannot infer here.
+        """
+
+        if self.requires_human_review:
+            return self
+        if self.uncertainty_note or self.key_findings_to_verify:
+            self.requires_human_review = True
+        elif self.confidence < self.LOW_CONFIDENCE_THRESHOLD:
+            self.requires_human_review = True
+        return self
+
     @classmethod
     def from_raw_sources(
         cls,
@@ -88,6 +140,9 @@ class ClinicalResponse(BaseModel):
         warning_level_summary: str = "No high-warning source metadata reported.",
         confidence: float = 0.0,
         requires_human_review: bool = False,
+        uncertainty_note: str | None = None,
+        key_findings_to_verify: list[str] | None = None,
+        recommended_next_steps: list[str] | None = None,
     ) -> ClinicalResponse:
         """Build a validated response from raw citation dictionaries."""
 
@@ -98,4 +153,7 @@ class ClinicalResponse(BaseModel):
             warning_level_summary=warning_level_summary,
             confidence=confidence,
             requires_human_review=requires_human_review,
+            uncertainty_note=uncertainty_note,
+            key_findings_to_verify=key_findings_to_verify or [],
+            recommended_next_steps=recommended_next_steps or [],
         )
