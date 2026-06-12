@@ -65,6 +65,35 @@ We built a **maintainable, testable, safety-conscious RAG pipeline** that treats
 - **Why metadata boosting?** Clinical warnings and hierarchy are stronger signals than pure semantic similarity in medical QA.
 - **Why Pydantic everywhere?** Type safety, validation, easy test overrides, and future guardrail flags in one maintainable source of truth.
 
+## Current Architecture (ADR-008)
+
+The system now includes a **deterministic LangGraph** implementation:
+
+```mermaid
+flowchart TD
+    START([START]) --> retrieve[retrieve]
+    
+    retrieve -->|generate_answer = True| generate[generate]
+    retrieve -->|generate_answer = False| format_output[format_output / Retrieval Only]
+    
+    generate --> assess_and_route[assess_and_route]
+    
+    assess_and_route -->|HIGH_CONFIDENCE| format_high_confidence[format_high_confidence]
+    assess_and_route -->|LOW_CONFIDENCE_ESCALATION| handle_low_confidence[handle_low_confidence_escalation]
+    
+    format_high_confidence --> END([END])
+    handle_low_confidence --> END
+    format_output --> END
+```
+
+**Key improvements in ADR-008**:
+- Central `assess_and_route` node that applies safety + builds a lean `ClinicalAssessment`
+- Explicit, deterministic routing using `RoutingDecision`
+- No more hidden auto-escalation logic inside Pydantic validators
+- Full observability (`routing_history` + LangSmith tracing)
+- Clean separation of concerns: Generation produces content + signals; the Graph owns routing decisions
+
+
 ## Tech Stack with Senior Rationale
 
 | Layer              | Technology                          | Why (Trade-off / Production Thinking)                          |
@@ -140,13 +169,16 @@ for strategy in ("hierarchical", "recursive"):
 
 Transparent senior decision-making is a first-class deliverable:
 
-| ADR     | Focus                                      | Key Outcome                              |
-|---------|--------------------------------------------|------------------------------------------|
-| ADR-001 | Initial core setup & package boundaries    | Clean src/ layout, config foundation     |
-| ADR-002 | Hierarchical chunking & clinical metadata  | section_hierarchy + warning_level flags  |
-| ADR-003 | (Intermediate)                             | -                                        |
-| ADR-004 | Metadata-aware hybrid retrieval + RRF      | Boosting rules, hybrid composition       |
-| ADR-005 | Lightweight pipeline factory               | Thin assembly, testability, safety posture |
+| ADR     | Focus                                              | Key Outcome                                      |
+|---------|----------------------------------------------------|--------------------------------------------------|
+| ADR-001 | Initial core setup & package boundaries            | Clean src/ layout, config foundation             |
+| ADR-002 | Hierarchical chunking & clinical metadata          | `section_hierarchy` + warning level flags        |
+| ADR-003 | (Intermediate)                                     | -                                                |
+| ADR-004 | Metadata-aware hybrid retrieval + RRF              | Boosting rules, hybrid composition               |
+| ADR-005 | Lightweight pipeline factory                       | Thin assembly, testability, safety posture       |
+| ADR-006 | Safety & Validation Layer                          | `ClinicalResponse`, `SafetyCritic`, guardrails   |
+| ADR-007 | Initial LangGraph introduction                     | Move from LCEL to explicit `StateGraph`          |
+| ADR-008 | Explicit Certainty-Aware Control Flow              | `assess_and_route` node + deterministic routing  |
 
 All ADRs live in `docs/adr/`. Reading them shows how we evaluate alternatives, document trade-offs, and protect long-term maintainability — a hallmark of Staff-level engineering.
 
@@ -154,9 +186,10 @@ All ADRs live in `docs/adr/`. Reading them shows how we evaluate alternatives, d
 
 **Current strengths**:
 - Fully config-driven and reproducible
-- Clear dependency boundaries (no circular imports)
-- Rich clinical metadata for future safety layers
+- Deterministic LangGraph with explicit clinical routing (ADR-008)
+- Rich clinical metadata for safety-aware behavior
 - Comparison harness for continuous retrieval quality
+- All core tests passing (68+ tests)
 
 **Next milestones** (tracked via ADRs/issues):
 - Generation layer with Grok / local LLMs + source citation enforcement
