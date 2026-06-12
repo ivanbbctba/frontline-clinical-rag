@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from src.frontline_clinical_rag.core.config import get_config
+
 
 
 class ClinicalSource(BaseModel):
@@ -50,6 +52,25 @@ class ClinicalResponse(BaseModel):
     uncertainty_note: str | None = None
     key_findings_to_verify: list[str] = Field(default_factory=list)
     recommended_next_steps: list[str] = Field(default_factory=list)
+    # Value comes from centralized SafetyConfig. No hardcoded default here;
+    # a pre-validation step injects it when the caller doesn't provide one.
+    low_confidence_threshold: float = Field(ge=0.0, le=1.0, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inject_configured_threshold(cls, data: Any) -> Any:
+        """Inject config-driven defaults for absent fields.
+
+        - `low_confidence_threshold` is sourced from `SafetyConfig` when missing.
+        - Explicit caller-provided values take precedence.
+        """
+
+        if isinstance(data, dict) and "low_confidence_threshold" not in data:
+            return {
+                **data,
+                "low_confidence_threshold": get_config().safety.low_confidence_threshold,
+            }
+        return data
 
     @classmethod
     def default_disclaimer(cls) -> str:
@@ -141,19 +162,22 @@ class ClinicalResponse(BaseModel):
         uncertainty_note: str | None = None,
         key_findings_to_verify: list[str] | None = None,
         recommended_next_steps: list[str] | None = None,
-        low_confidence_threshold: float,
+        low_confidence_threshold: float | None = None,
     ) -> ClinicalResponse:
         """Build a validated response from raw citation dictionaries."""
 
-        return cls(
-            answer=answer,
-            sources=sources,
-            disclaimer=disclaimer or cls.default_disclaimer(),
-            warning_level_summary=warning_level_summary,
-            confidence=confidence,
-            requires_human_review=requires_human_review,
-            uncertainty_note=uncertainty_note,
-            key_findings_to_verify=key_findings_to_verify or [],
-            recommended_next_steps=recommended_next_steps or [],
-            low_confidence_threshold=low_confidence_threshold,
-        )
+        payload: dict[str, Any] = {
+            "answer": answer,
+            "sources": sources,
+            "disclaimer": disclaimer or cls.default_disclaimer(),
+            "warning_level_summary": warning_level_summary,
+            "confidence": confidence,
+            "requires_human_review": requires_human_review,
+            "uncertainty_note": uncertainty_note,
+            "key_findings_to_verify": key_findings_to_verify or [],
+            "recommended_next_steps": recommended_next_steps or [],
+        }
+        if low_confidence_threshold is not None:
+            payload["low_confidence_threshold"] = low_confidence_threshold
+
+        return cls(**payload)
