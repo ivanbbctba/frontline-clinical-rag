@@ -76,25 +76,6 @@ def create_retriever(config: AppConfig | None = None) -> BaseRetriever:
     )
 
 
-def create_hybrid_retriever(
-    config: AppConfig | None = None,
-    *,
-    strategy: str | None = None,
-    force_rebuild_index: bool = False,
-) -> BaseRetriever:
-    """Backward-compatible thin wrapper around `create_retriever`.
-
-    New code should configure `retrieval.strategy` and call `create_retriever`.
-    """
-
-    resolved_config = config or get_config()
-    if strategy is not None:
-        resolved_config.retrieval.strategy = strategy  # type: ignore[assignment]
-    if force_rebuild_index:
-        resolved_config.retrieval.force_rebuild_index = True
-    return create_retriever(resolved_config)
-
-
 # ADR-006 Safety Integration
 
 
@@ -131,7 +112,7 @@ def apply_safety_layer(
         ```python
         retriever = create_retriever()
         retrieved_context = retriever.invoke(question)
-        response = ClinicalResponse.from_raw_sources(...)
+        response = generate_clinical_answer(question, retrieved_context, llm=llm)
         safe_response = apply_safety_layer(response, retrieved_context)
         ```
     """

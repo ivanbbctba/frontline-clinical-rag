@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["create_hybrid_retriever", "create_retriever"]
+__all__ = ["create_retriever"]
 
 
 def __getattr__(name: str) -> Any:
