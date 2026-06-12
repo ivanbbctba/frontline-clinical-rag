@@ -39,8 +39,6 @@ class ClinicalResponse(BaseModel):
     upstream models that ignore them remain compatible.
     """
 
-    LOW_CONFIDENCE_THRESHOLD: ClassVar[float] = 0.5
-
     answer: str
     sources: list[dict[str, Any]] = Field(default_factory=list)
     disclaimer: str = Field(
@@ -126,7 +124,7 @@ class ClinicalResponse(BaseModel):
             return self
         if self.uncertainty_note or self.key_findings_to_verify:
             self.requires_human_review = True
-        elif self.confidence < self.LOW_CONFIDENCE_THRESHOLD:
+        elif self.confidence < self.low_confidence_threshold:
             self.requires_human_review = True
         return self
 
@@ -143,6 +141,7 @@ class ClinicalResponse(BaseModel):
         uncertainty_note: str | None = None,
         key_findings_to_verify: list[str] | None = None,
         recommended_next_steps: list[str] | None = None,
+        low_confidence_threshold: float,
     ) -> ClinicalResponse:
         """Build a validated response from raw citation dictionaries."""
 
@@ -156,4 +155,5 @@ class ClinicalResponse(BaseModel):
             uncertainty_note=uncertainty_note,
             key_findings_to_verify=key_findings_to_verify or [],
             recommended_next_steps=recommended_next_steps or [],
+            low_confidence_threshold=low_confidence_threshold,
         )
