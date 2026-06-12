@@ -47,12 +47,16 @@ def test_safety_critic_accepts_grounded_cautious_answer():
 
 def test_safety_critic_improves_response_for_high_warning_context():
     critic = SafetyCritic()
-    response = ClinicalResponse.from_raw_sources(
+    response = ClinicalResponse(
         answer="Consider anticoagulation precautions using cited context.",
         sources=[{"page": 10, "section": "Anticoagulants", "excerpt": "Monitor closely."}],
         disclaimer="Brief disclaimer.",
         warning_level_summary="No high-warning source metadata reported.",
         confidence=0.6,
+        requires_human_review=False,
+        uncertainty_note=None,
+        key_findings_to_verify=[],
+        recommended_next_steps=[],
     )
     context = [{"metadata": {"page_number": 10, "section_title": "Anticoagulants", "chunk_type": "warning"}}]
 

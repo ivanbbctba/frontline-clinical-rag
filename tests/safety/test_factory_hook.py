@@ -32,12 +32,16 @@ def test_factory_safety_hook_helpers_import_without_building_retrievers(monkeypa
 
 def test_apply_safety_layer_uses_default_critic_to_improve_response(monkeypatch):
     factory = _import_factory_with_mocked_retrieval(monkeypatch)
-    response = ClinicalResponse.from_raw_sources(
+    response = ClinicalResponse(
         answer="This is definitely safe for all patients per Anticoagulants page 10.",
         sources=[{"page": 10, "section": "Anticoagulants", "excerpt": "Monitor closely."}],
         disclaimer="Brief disclaimer.",
         warning_level_summary="No high-warning source metadata reported.",
         confidence=0.6,
+        requires_human_review=False,
+        uncertainty_note=None,
+        key_findings_to_verify=[],
+        recommended_next_steps=[],
     )
     context = [
         {
@@ -58,11 +62,16 @@ def test_apply_safety_layer_uses_default_critic_to_improve_response(monkeypatch)
 
 def test_apply_safety_layer_accepts_custom_critic(monkeypatch):
     factory = _import_factory_with_mocked_retrieval(monkeypatch)
-    response = ClinicalResponse.from_raw_sources(
+    response = ClinicalResponse(
         answer="Consider source-guided care.",
         sources=[{"page": 1, "section": "Care", "excerpt": "Use clinical judgment."}],
+        disclaimer=ClinicalResponse.default_disclaimer(),
         warning_level_summary="No warnings.",
         confidence=0.5,
+        requires_human_review=False,
+        uncertainty_note=None,
+        key_findings_to_verify=[],
+        recommended_next_steps=[],
     )
 
     class TrackingCritic(SafetyCritic):
