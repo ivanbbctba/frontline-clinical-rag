@@ -63,7 +63,13 @@ def generate_clinical_answer(
 
 def _parse_clinical_response(raw_output: str) -> ClinicalResponse:
     payload = json.loads(_extract_json_object(raw_output))
-    return ClinicalResponse.model_validate(payload)
+    response = ClinicalResponse.model_validate(payload)
+
+    # Apply escalation logic here (in the generation path only)
+    if response.uncertainty_note or response.key_findings_to_verify:
+        response = response.model_copy(update={"requires_human_review": True})
+
+    return response
 
 
 def _extract_json_object(raw_output: str) -> str:
