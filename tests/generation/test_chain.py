@@ -20,12 +20,19 @@ def test_generate_clinical_answer_invokes_llm_and_validates_schema():
         {
             "answer": "Consider source-guided care. Source: Appendicitis, p. 7.",
             "sources": [
-                {"page": 7, "section": "Appendicitis", "excerpt": "Surgery is definitive."}
+                {
+                    "page": 7,
+                    "section": "Appendicitis",
+                    "excerpt": "Surgery is definitive.",
+                }
             ],
             "disclaimer": ClinicalResponse.default_disclaimer(),
             "warning_level_summary": "None identified",
             "confidence": 0.8,
             "requires_human_review": False,
+            "uncertainty_note": None,
+            "key_findings_to_verify": [],
+            "recommended_next_steps": [],
         }
     )
     llm = MockLLM(output)
