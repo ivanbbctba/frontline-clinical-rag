@@ -218,6 +218,18 @@ class SafetyConfig(BaseSettings):
     medical_disclaimer: str = Field(
         "This is an AI-assisted decision support tool. All information must be verified against primary sources and clinical judgment. Not a substitute for professional medical advice."
     )
+    low_confidence_threshold: float = Field(
+        0.5,
+        ge=0.0,
+        le=1.0,
+        validation_alias=AliasChoices(
+            "SAFETY_LOW_CONFIDENCE_THRESHOLD", "low_confidence_threshold"
+        ),
+        description=(
+            "Confidence below this value forces requires_human_review=True in ClinicalResponse. "
+            "Tune higher (e.g. 0.65-0.75) once you have production traces."
+        ),
+    )
 
     model_config = SettingsConfigDict(
         env_prefix="SAFETY_", env_file=".env", extra="ignore"
