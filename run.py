@@ -26,7 +26,7 @@ CLINICAL_QUESTIONS = [
 
 def _build_xai_llm() -> ChatOpenAI:
     return ChatOpenAI(
-        model=os.environ.get("LLM_XAI_MODEL_NAME", "grok-3-mini"),
+        model=os.environ.get("LLM_XAI_MODEL_NAME"),
         api_key=os.environ["LLM_API_KEY"],
         base_url=os.environ.get("LLM_XAI_BASE_URL", "https://api.x.ai/v1"),
         temperature=float(os.environ.get("FRONTLINE_TEMPERATURE", "0.0")),

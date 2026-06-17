@@ -25,6 +25,8 @@ from src.frontline_clinical_rag.generation.chain import (
     generate_clinical_answer,
 )
 from src.frontline_clinical_rag.safety.schemas import ClinicalResponse
+from src.frontline_clinical_rag.safety import detect_prompt_injection
+from src.frontline_clinical_rag.safety.prompts import INJECTION_KEYWORDS
 
 
 class RoutingDecision(StrEnum):
@@ -60,6 +62,8 @@ class ClinicalRAGState(TypedDict):
     tags: NotRequired[list[str]]
     metadata: NotRequired[dict[str, Any]]
     node_log: NotRequired[list[str]]
+    input_injection_detected: NotRequired[bool]
+    injection_matched_keywords: NotRequired[list[str]]
 
 
 GraphLogger = Callable[[str], None]
@@ -81,6 +85,7 @@ def build_clinical_rag_graph(
         resolved_retriever = retriever
 
     workflow = StateGraph(ClinicalRAGState)
+    workflow.add_node("validate_input", _validate_input_node(logger))
     workflow.add_node("retrieve", _retrieve_node(resolved_retriever, logger))
     workflow.add_node("generate", _generate_node(llm, logger))
     workflow.add_node("assess_and_route", _assess_and_route_node(logger))
@@ -91,7 +96,14 @@ def build_clinical_rag_graph(
     )
     workflow.add_node("format_output", _format_output_node(logger))
 
-    workflow.set_entry_point("retrieve")
+    workflow.set_entry_point("validate_input")
+    # Short-circuit to END if input is flagged; otherwise continue to retrieve
+    workflow.add_conditional_edges(
+        "validate_input",
+        _route_after_validate_input,
+        {"retrieve": "retrieve", END: END},
+    )
+
     workflow.add_conditional_edges(
         "retrieve",
         _route_after_retrieve,
@@ -140,6 +152,44 @@ def run_clinical_rag_graph(
     }
     return graph.invoke(initial_state)
 
+@traceable(name="validate_input_guardrail")
+def _validate_input_node(logger: GraphLogger | None = None):
+    """Factory that returns the actual validate_input node (matches _retrieve_node style)."""
+
+    def validate_input(state: ClinicalRAGState) -> ClinicalRAGState:
+        _log_transition(state, "validate_input", logger)
+
+        question: str = state.get("question", "") or ""
+        flagged = detect_prompt_injection(question)
+
+        matched_keywords: list[str] = []
+        if flagged:
+            normalized = _normalize_text(question)
+            matched_keywords = [
+                kw for kw in INJECTION_KEYWORDS
+                if _normalize_text(kw) in normalized
+            ]
+
+        return {
+            **state,  # preserve existing state (good practice seen in your other nodes)
+            "input_injection_detected": flagged,
+            "injection_matched_keywords": matched_keywords,
+        }
+
+    return validate_input
+
+
+@traceable(name="route_after_validate_input")
+def _route_after_validate_input(state: ClinicalRAGState):
+    """Route to END when input injection is detected; else continue to retrieve."""
+    return END if state.get("input_injection_detected") else "retrieve"
+
+
+def _normalize_text(text: str) -> str:
+    """Lightweight normalization (same as inside guardrails.py)."""
+    import re
+    pattern = re.compile(r"[\s\-_:;,.!?()\[\]{}]+")
+    return pattern.sub(" ", text.casefold()).strip()
 
 @traceable(name="retrieve")
 def _retrieve_node(retriever: Any, logger: GraphLogger | None):
