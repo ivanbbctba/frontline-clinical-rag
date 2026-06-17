@@ -27,7 +27,7 @@ We built a **maintainable, testable, safety-conscious RAG pipeline** that treats
 - **HierarchicalMedicalChunker** (PyMuPDF + TOC analysis): Extracts true document hierarchy (`section_hierarchy` metadata) and detects clinical warning levels (`black_box`, `boxed_warning`, `has_warning`). Chunks carry rich, queryable metadata instead of plain text.
 - **Metadata-Aware Hybrid Retrieval**: Dense embeddings (bge-m3 or OpenAI) + sparse BM25 + Reciprocal Rank Fusion (RRF) + configurable field boosting (warnings boosted up to 1.7×, hierarchy 1.2×). Two retrieval strategies side-by-side for comparison.
 - **Config-Driven Factory Assembly** (ADR-005): Thin, explicit `pipeline/factory.py` wires everything from a single Pydantic `AppConfig`. No hidden singletons, full testability with overrides, clear dependency boundaries.
-- **Clinical Safety Posture**: Metadata enables future guardrails, citation enforcement, and refusal behavior. Every answer path is designed to be auditable.
+- **Clinical Safety Posture**: A deterministic input guardrail now runs before retrieval, and generated answers still pass through post-generation safety validation plus explicit graph routing. Every answer path is designed to be auditable.
 - **ADR Governance**: Five Architecture Decision Records document context, alternatives considered, trade-offs, and consequences. This is how senior engineers ship systems that teams can maintain and audit.
 
 **Python**, **RAG**, **LangChain**, **Vector Databases**, **Embeddings**, **hybrid retrieval**, **evaluation harness**, **modular architecture**, **Pydantic config**, and **production patterns** in a high-stakes domain.
@@ -71,7 +71,10 @@ The system now includes a **deterministic LangGraph** implementation:
 
 ```mermaid
 flowchart TD
-    START([START]) --> retrieve[retrieve]
+    START([START]) --> input_guardrail[Input Guardrail Node]
+    
+    input_guardrail -->|valid| retrieve[retrieve]
+    input_guardrail -->|invalid| END([INVALID INPUT])
     
     retrieve -->|generate_answer = True| generate[generate]
     retrieve -->|generate_answer = False| format_output[format_output / Retrieval Only]
@@ -87,6 +90,7 @@ flowchart TD
 ```
 
 **Key improvements in ADR-008**:
+- Deterministic `validate_input` entry node blocks obvious prompt-injection attempts before retrieval or generation
 - Central `assess_and_route` node that applies safety + builds a lean `ClinicalAssessment`
 - Explicit, deterministic routing using `RoutingDecision`
 - No more hidden auto-escalation logic inside Pydantic validators
@@ -186,15 +190,16 @@ All ADRs live in `docs/adr/`. Reading them shows how we evaluate alternatives, d
 
 **Current strengths**:
 - Fully config-driven and reproducible
-- Deterministic LangGraph with explicit clinical routing (ADR-008)
+- Deterministic LangGraph with first-node input guardrail and explicit clinical routing (ADR-008)
 - Rich clinical metadata for safety-aware behavior
+- Prompt-injection detection is covered with edge-case and performance tests
 - Comparison harness for continuous retrieval quality
 - All core tests passing (68+ tests)
 
 **Next milestones** (tracked via ADRs/issues):
 - Generation layer with Grok / local LLMs + source citation enforcement
 - Full evaluation harness (RAGAS + clinical metrics: citation recall, warning grounding, refusal rate, consistency)
-- Output guardrails & refusal for out-of-scope / contradictory queries
+- Stronger output guardrails and refusal handling for out-of-scope / contradictory queries
 - Docker packaging + CI/CD pipeline
 - Observability (LangSmith alternative or custom tracing)
 - Multi-profile pipelines (dev vs. safety-eval vs. production)
