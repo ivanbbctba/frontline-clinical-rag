@@ -22,9 +22,8 @@ def create_hierarchical_retriever(
 ) -> BaseRetriever:
     """Lazily delegate hierarchical retriever construction."""
 
-    from src.frontline_clinical_rag.retrieval.hierarchical_retriever import (
-        create_hierarchical_retriever as _create_hierarchical_retriever,
-    )
+    from src.frontline_clinical_rag.retrieval.hierarchical_retriever import \
+        create_hierarchical_retriever as _create_hierarchical_retriever
 
     return _create_hierarchical_retriever(
         config,
@@ -39,9 +38,8 @@ def create_recursive_retriever(
 ) -> BaseRetriever:
     """Lazily delegate recursive retriever construction."""
 
-    from src.frontline_clinical_rag.retrieval.recursive_retriever import (
-        create_recursive_retriever as _create_recursive_retriever,
-    )
+    from src.frontline_clinical_rag.retrieval.recursive_retriever import \
+        create_recursive_retriever as _create_recursive_retriever
 
     return _create_recursive_retriever(
         config,

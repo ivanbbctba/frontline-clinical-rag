@@ -21,12 +21,10 @@ from langsmith import traceable
 
 from src.frontline_clinical_rag.core.config import get_config
 from src.frontline_clinical_rag.generation.chain import (
-    ClinicalLLM,
-    generate_clinical_answer,
-)
-from src.frontline_clinical_rag.safety.schemas import ClinicalResponse
+    ClinicalLLM, generate_clinical_answer)
 from src.frontline_clinical_rag.safety import detect_prompt_injection
 from src.frontline_clinical_rag.safety.prompts import INJECTION_KEYWORDS
+from src.frontline_clinical_rag.safety.schemas import ClinicalResponse
 
 
 class RoutingDecision(StrEnum):
@@ -78,7 +76,8 @@ def build_clinical_rag_graph(
     """Build the deterministic ADR-008 clinical RAG StateGraph."""
 
     if retriever is None:
-        from src.frontline_clinical_rag.pipeline.factory import create_retriever
+        from src.frontline_clinical_rag.pipeline.factory import \
+            create_retriever
 
         resolved_retriever = create_retriever()
     else:
@@ -152,6 +151,7 @@ def run_clinical_rag_graph(
     }
     return graph.invoke(initial_state)
 
+
 @traceable(name="validate_input_guardrail")
 def _validate_input_node(logger: GraphLogger | None = None):
     """Factory that returns the actual validate_input node (matches _retrieve_node style)."""
@@ -166,8 +166,7 @@ def _validate_input_node(logger: GraphLogger | None = None):
         if flagged:
             normalized = _normalize_text(question)
             matched_keywords = [
-                kw for kw in INJECTION_KEYWORDS
-                if _normalize_text(kw) in normalized
+                kw for kw in INJECTION_KEYWORDS if _normalize_text(kw) in normalized
             ]
 
         return {
@@ -188,8 +187,10 @@ def _route_after_validate_input(state: ClinicalRAGState):
 def _normalize_text(text: str) -> str:
     """Lightweight normalization (same as inside guardrails.py)."""
     import re
+
     pattern = re.compile(r"[\s\-_:;,.!?()\[\]{}]+")
     return pattern.sub(" ", text.casefold()).strip()
+
 
 @traceable(name="retrieve")
 def _retrieve_node(retriever: Any, logger: GraphLogger | None):
@@ -230,7 +231,8 @@ def _assess_and_route_node(logger: GraphLogger | None):
         generated_response = state.get("generated_response")
         if generated_response is None:
             raise ValueError("assess_and_route requires a generated ClinicalResponse.")
-        from src.frontline_clinical_rag.pipeline.factory import apply_safety_layer
+        from src.frontline_clinical_rag.pipeline.factory import \
+            apply_safety_layer
 
         safe_response = apply_safety_layer(
             generated_response,
