@@ -7,7 +7,6 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-
 class ClinicalSource(BaseModel):
     """A cited Merck Manual source supporting a clinical answer."""
 
@@ -142,4 +141,3 @@ class ClinicalResponse(BaseModel):
         if len(self.answer.split()) >= 20 and not self.sources:
             raise ValueError("substantial clinical answers require at least one source")
         return self
-

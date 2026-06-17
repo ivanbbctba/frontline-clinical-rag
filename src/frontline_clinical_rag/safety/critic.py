@@ -8,7 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from src.frontline_clinical_rag.safety.prompts import SAFETY_CRITIC_SYSTEM_PROMPT
+from src.frontline_clinical_rag.safety.prompts import \
+    SAFETY_CRITIC_SYSTEM_PROMPT
 from src.frontline_clinical_rag.safety.schemas import ClinicalResponse
 
 CitationQuality = Literal["good", "needs_improvement", "poor"]
