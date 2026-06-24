@@ -1,28 +1,26 @@
+import argparse
 import os
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
 
-from src.frontline_clinical_rag.core.config import get_config
+from src.frontline_clinical_rag.core.config import EvaluationConfig, get_config
+from src.frontline_clinical_rag.evaluation.fixtures import CANONICAL_MERCK_QUESTIONS
+from src.frontline_clinical_rag.evaluation.harness import (
+    export_rows,
+    print_table,
+    run_evaluation,
+)
+from src.frontline_clinical_rag.evaluation.metrics import compute_deterministic_metrics
 from src.frontline_clinical_rag.pipeline.factory import create_retriever
 from src.frontline_clinical_rag.pipeline.graph import run_clinical_rag_graph
-from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
 
-CLINICAL_QUESTIONS = [
-    #"What are urgent warning signs for chest pain?",
-    #"What are common causes of acute shortness of breath?",
-    #"What red flags should be considered for severe headache?",
-    #"What information is relevant for evaluating abdominal pain with fever?",
-    "What is the protocol for managing sepsis in a critical care unit?",
-    "What are the common symptoms for appendicitis, and can it be cured via medicine? If not, what surgical procedure should be followed to treat it?",
-    "What are the effective treatments or solutions for addressing sudden patchy hair loss, commonly seen as localized bald spots on the scalp, and what could be the possible causes behind it?",
-    "What treatments are recommended for a person who has sustained a physical injury to brain tissue, resulting in temporary or permanent impairment of brain function?",
-
-]
+CLINICAL_QUESTIONS = CANONICAL_MERCK_QUESTIONS
 
 def _build_xai_llm() -> ChatOpenAI:
     return ChatOpenAI(
@@ -52,8 +50,57 @@ def _format_source(metadata: dict) -> str:
 
 
 def main() -> None:
-    #run_retrieval_demo()
-    run_generation_graph_demo(_build_xai_llm())
+    """Run demos or the ADR-009 deterministic evaluation harness."""
+
+    parser = argparse.ArgumentParser(description="Clinical RAG demo and evaluation runner.")
+    parser.add_argument(
+        "--mode",
+        choices=["demo", "retrieval", "evaluation"],
+        default="demo",
+    )
+    parser.add_argument(
+        "--eval-mode",
+        choices=["metric_unit", "harness_integration", "live_eval"],
+        default="live_eval",
+    )
+    parser.add_argument("--strategy", choices=["hierarchical", "recursive"], action="append")
+    parser.add_argument("--compare-strategies", action="store_true")
+    parser.add_argument("--csv", type=Path)
+    parser.add_argument("--json", type=Path)
+    args = parser.parse_args()
+
+    if args.mode == "retrieval":
+        run_retrieval_demo()
+        return
+    if args.mode == "demo":
+        run_generation_graph_demo(_build_xai_llm(), strategy=args.strategy[0] if args.strategy else None)
+        return
+    run_deterministic_evaluation(
+        run_mode=args.eval_mode,
+        strategies=(
+            ["hierarchical", "recursive"]
+            if args.compare_strategies
+            else args.strategy or ["hierarchical"]
+        ),
+        csv_path=args.csv,
+        json_path=args.json,
+    )
+
+
+def run_deterministic_evaluation(
+    *,
+    run_mode: str,
+    strategies: list[str],
+    csv_path: Path | None = None,
+    json_path: Path | None = None,
+) -> None:
+    """Run ADR-009 evaluation from run.py using canonical fixtures only."""
+
+    app_config = get_config()
+    config = EvaluationConfig.from_app_config(app_config, run_mode=run_mode, strategies=strategies)
+    rows = run_evaluation(config, app_config=app_config, llm_factory=_build_xai_llm)
+    print_table(rows)
+    export_rows(rows, csv_path=csv_path, json_path=json_path)
 
 
 def run_retrieval_demo() -> None:
@@ -79,10 +126,23 @@ def run_retrieval_demo() -> None:
                 print(f"      {content}...")
 
 
-def run_generation_graph_demo(llm: Any) -> None:
-    """Run the ADR-007 Phase 1 graph over the four canonical questions."""
+def run_generation_graph_demo(llm: Any, *, strategy: str | None = None) -> None:
+    """Run the full graph and append ADR-009 metrics after every question.
+
+    This preserves the original end-to-end demo behavior while making the lean
+    deterministic evaluation visible at the point reviewers inspect each graph
+    run.
+    """
 
     config = get_config()
+    if strategy is not None:
+        config = config.model_copy(deep=True)
+        config.retrieval.strategy = strategy
+    evaluation_config = EvaluationConfig.from_app_config(
+        config,
+        run_mode="live_eval",
+        strategies=[config.retrieval.strategy],
+    )
     retriever = create_retriever(config)
     for question in CLINICAL_QUESTIONS:
         print(f"\n{'=' * 100}")
@@ -99,6 +159,13 @@ def run_generation_graph_demo(llm: Any) -> None:
         )
         response = state["output"]
         print(response.model_dump_json(indent=2))
+        evaluation = compute_deterministic_metrics(state, evaluation_config, latency_ms=0.0)
+        print("\nADR-009 DETERMINISTIC EVALUATION")
+        for metric in evaluation.metrics:
+            status = "PASS" if metric.passed else "FAIL"
+            gate = "gating" if metric.gating else "info"
+            print(f"  {metric.id} {metric.name}: {status} ({gate})")
+        print(f"  QUESTION RESULT: {'PASS' if evaluation.passed else 'FAIL'}")
 
 
 if __name__ == "__main__":
