@@ -27,7 +27,7 @@ Traditional RAG approaches (flat RecursiveCharacterTextSplitter + basic vector s
 We built a **maintainable, testable, safety-conscious RAG pipeline** that treats medical documents as first-class structured artifacts:
 
 - **HierarchicalMedicalChunker** (PyMuPDF + TOC analysis): Extracts true document hierarchy (`section_hierarchy` metadata) and detects clinical warning levels (`black_box`, `boxed_warning`, `has_warning`). Chunks carry rich, queryable metadata instead of plain text.
-- **Metadata-Aware Hybrid Retrieval**: Dense embeddings (bge-m3 or OpenAI) + sparse BM25 + Reciprocal Rank Fusion (RRF) + configurable field boosting (warnings boosted up to 1.7×, hierarchy 1.2×). Two retrieval strategies side-by-side for comparison.
+- **Metadata-Aware Hybrid Retrieval**: Local dense embeddings (bge-m3) + sparse BM25 + Reciprocal Rank Fusion (RRF) + configurable field boosting (warnings boosted up to 1.7×, hierarchy 1.2×). Two retrieval strategies side-by-side for comparison.
 - **Config-Driven Factory Assembly** (ADR-005): Thin, explicit `pipeline/factory.py` wires everything from a single Pydantic `AppConfig`. No hidden singletons, full testability with overrides, clear dependency boundaries.
 - **Clinical Safety Posture**: A deterministic input guardrail now runs before retrieval, and generated answers still pass through post-generation safety validation plus explicit graph routing. Every answer path is designed to be auditable.
 - **ADR Governance**: Five Architecture Decision Records document context, alternatives considered, trade-offs, and consequences. This is how senior engineers ship systems that teams can maintain and audit.
@@ -106,11 +106,11 @@ flowchart TD
 |--------------------|-------------------------------------|----------------------------------------------------------------|
 | Language & Types   | Python 3.11 + Pydantic v2           | Type-safe config, runtime validation, excellent DX in PyCharm  |
 | Orchestration      | LangChain 0.3 (LCEL ready)          | Mature RAG primitives + future chain composability             |
-| Embeddings         | BAAI/bge-m3 (local) or OpenAI       | Strong medical-domain performance; local-first privacy option  |
+| Embeddings         | BAAI/bge-m3 (local)                 | Strong medical-domain performance with local-first privacy     |
 | Vector Database    | FAISS (default) / Chroma / Weaviate | Fast local retrieval; easy swap via config                     |
 | Chunking           | Custom HierarchicalMedicalChunker + PyMuPDF | Layout-aware TOC hierarchy + clinical warning detection     |
 | Retrieval          | Hybrid (dense + sparse) + RRF + metadata boost | Best of semantic + lexical; safety signals influence ranking |
-| LLM                | Grok (xAI) / local Ollama (llama3.1) / OpenAI fallback | Flexible, production-ready, cost/privacy options            |
+| LLM                | local Ollama (llama3.1) with optional xAI fallback | Local-first by default; hosted fallback only if explicitly enabled |
 | Config             | Single Pydantic AppConfig           | One source of truth; overrides for tests & experiments         |
 | Testing & Eval     | ADR-009 deterministic harness | Layer A PASS/FAIL metrics over canonical Merck fixtures |
 | Packaging          | pipenv + src layout                 | Reproducible environments, clean imports                       |
@@ -146,11 +146,12 @@ frontline-clinical-rag/
 # 1. Environment
 pipenv install
 pipenv shell
-cp env.example .env   # Fill OPENAI_API_KEY or LLM_LOCAL_*, FRONTLINE_MERCK_PDF_PATH
+cp env.example .env   # Local-first defaults; no cloud API key needed
+# Confirm FRONTLINE_MERCK_PDF_PATH points to your local Merck Manual PDF
 
 # 2. (Optional) Ingest / rebuild index
-python -c "from src.frontline_clinical_rag.core.config import get_config; print(get_config().force_rebuild_index)"
-# Set FRONTLINE_RETRIEVER_FORCE_REBUILD_INDEX=true to rebuild
+python -c "from src.frontline_clinical_rag.core.config import get_config; print(get_config().retrieval.force_rebuild_index)"
+# Set RETRIEVER_FORCE_REBUILD_INDEX=true to rebuild
 
 # 3. Run the full graph demo; ADR-009 metrics print after each question
 python run.py
