@@ -6,16 +6,9 @@ from src.frontline_clinical_rag.pipeline.graph import (
     run_clinical_rag_graph,
     _validate_input_node,
 )
+from src.frontline_clinical_rag.evaluation.fixtures import CANONICAL_MERCK_QUESTIONS
 from src.frontline_clinical_rag.safety.schemas import ClinicalResponse
 from src.frontline_clinical_rag.pipeline.graph import ClinicalRAGState
-
-
-CANONICAL_QUESTIONS = [
-    "Protocol for managing sepsis in a critical care unit.",
-    "Appendicitis symptoms and treatment.",
-    "Sudden patchy hair loss (alopecia areata) — causes and treatments.",
-    "Treatment for traumatic brain injury (TBI).",
-]
 
 
 class MockRetriever:
@@ -81,7 +74,7 @@ class LowConfidenceMockLLM:
 
 
 def test_full_graph_execution_returns_validated_responses_for_canonical_questions():
-    for question in CANONICAL_QUESTIONS:
+    for question in CANONICAL_MERCK_QUESTIONS:
         state = run_clinical_rag_graph(
             question,
             retriever=MockRetriever(),
@@ -112,7 +105,7 @@ def test_full_graph_execution_returns_validated_responses_for_canonical_question
 
 def test_graph_supports_retrieval_only_path_without_generation():
     state = run_clinical_rag_graph(
-        CANONICAL_QUESTIONS[0],
+        CANONICAL_MERCK_QUESTIONS[0],
         retriever=MockRetriever(),
         generate_answer=False,
     )
@@ -123,7 +116,7 @@ def test_graph_supports_retrieval_only_path_without_generation():
 
 def test_generated_answers_are_forced_through_safety_layer():
     state = run_clinical_rag_graph(
-        CANONICAL_QUESTIONS[0],
+        CANONICAL_MERCK_QUESTIONS[0],
         retriever=MockRetriever(),
         llm=MockLLM(),
     )
@@ -135,7 +128,7 @@ def test_generated_answers_are_forced_through_safety_layer():
 
 def test_low_confidence_answers_route_to_escalation_handler():
     state = run_clinical_rag_graph(
-        CANONICAL_QUESTIONS[0],
+        CANONICAL_MERCK_QUESTIONS[0],
         retriever=MockRetriever(),
         llm=LowConfidenceMockLLM(),
     )
@@ -173,7 +166,7 @@ def test_validate_input_node_runs_first_and_detects_injection():
 
     # --- Case 2: Normal high-value clinical question ---
     clean_state: ClinicalRAGState = {
-        "question": "What is the recommended protocol for managing sepsis in a critical care unit?",
+        "question": CANONICAL_MERCK_QUESTIONS[0],
         "node_log": [],
     }
     result = validate_input(clean_state)
