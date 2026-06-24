@@ -27,6 +27,78 @@ from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+EvaluationRunMode = Literal["metric_unit", "harness_integration", "live_eval"]
+RetrievalStrategy = Literal["hierarchical", "recursive"]
+
+
+class EvaluationConfig(BaseSettings):
+    """ADR-009 Phase 1 evaluation settings kept in centralized config.
+
+    Evaluation is an application concern, not an evaluation-package-local source
+    of truth. Keeping these thresholds and run-mode controls beside retrieval
+    and safety settings makes ``core.config`` the single place reviewers inspect
+    for project configuration while preserving ADR-009 Layer A determinism.
+    """
+
+    deterministic: bool = Field(
+        True,
+        description=(
+            "Layer A metric determinism only; live LLM generation remains Layer B "
+            "and is not a CI reproducibility guarantee."
+        ),
+    )
+    low_confidence_threshold: float = Field(
+        0.5,
+        ge=0.0,
+        le=1.0,
+        validation_alias=AliasChoices(
+            "EVALUATION_LOW_CONFIDENCE_THRESHOLD", "low_confidence_threshold"
+        ),
+    )
+    min_sources: int = Field(1, ge=0)
+    run_mode: EvaluationRunMode = "metric_unit"
+    strategies: list[RetrievalStrategy] = Field(default_factory=lambda: ["hierarchical"])
+    top_k: int | None = 5
+    high_warning_levels: set[str] = Field(
+        default_factory=lambda: {"black_box", "boxed_warning"}
+    )
+
+    model_config = SettingsConfigDict(
+        env_prefix="EVALUATION_", env_file=".env", extra="ignore", frozen=True
+    )
+
+    @field_validator("strategies")
+    @classmethod
+    def require_strategy(cls, value: list[RetrievalStrategy]) -> list[RetrievalStrategy]:
+        """Reject empty strategy lists so run aggregation is never ambiguous."""
+
+        if not value:
+            raise ValueError("at least one retrieval strategy is required")
+        return value
+
+    @classmethod
+    def from_app_config(
+        cls,
+        app_config: AppConfig,
+        **overrides: object,
+    ) -> EvaluationConfig:
+        """Build evaluation settings from centralized runtime defaults.
+
+        ADR-009 metrics need safety and retrieval thresholds that already live in
+        ``AppConfig``. This helper prevents the evaluation package from importing
+        or constructing a second configuration source while still allowing CLI
+        callers and tests to override run-specific controls.
+        """
+
+        values = {
+            "low_confidence_threshold": app_config.safety.low_confidence_threshold,
+            "top_k": app_config.retrieval.top_k,
+            "high_warning_levels": set(app_config.retrieval.safety_warning_levels),
+        }
+        values.update(overrides)
+        return cls(**values)
+
+
 class LLMConfig(BaseSettings):
     """LLM provider settings.
 
@@ -247,6 +319,7 @@ class AppConfig(BaseSettings):
         default_factory=RetrievalConfig, alias="retriever"
     )
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
 
     project_root: Path = Field(
         default_factory=lambda: Path(__file__).resolve().parents[3]
@@ -274,6 +347,25 @@ class AppConfig(BaseSettings):
         if not v.exists():
             pass
         return v
+
+    def model_post_init(self, __context: object) -> None:
+        """Align evaluation defaults with central safety/retrieval settings.
+
+        The nested evaluation model remains immutable, so we replace it with a
+        derived copy after all other configuration sections are validated.
+        """
+
+        object.__setattr__(
+            self,
+            "evaluation",
+            EvaluationConfig.from_app_config(
+                self,
+                deterministic=self.evaluation.deterministic,
+                min_sources=self.evaluation.min_sources,
+                run_mode=self.evaluation.run_mode,
+                strategies=self.evaluation.strategies,
+            ),
+        )
 
 
 _config: AppConfig | None = None

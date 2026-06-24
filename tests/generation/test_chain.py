@@ -2,6 +2,7 @@ import json
 
 from src.frontline_clinical_rag.generation.chain import generate_clinical_answer
 from src.frontline_clinical_rag.generation.prompts import CLINICAL_SYSTEM_PROMPT
+from src.frontline_clinical_rag.evaluation.fixtures import CANONICAL_MERCK_QUESTIONS
 from src.frontline_clinical_rag.safety.schemas import ClinicalResponse
 
 
@@ -46,7 +47,7 @@ def test_generate_clinical_answer_invokes_llm_and_validates_schema():
     ]
 
     response = generate_clinical_answer(
-        "Appendicitis symptoms and treatment.",
+        CANONICAL_MERCK_QUESTIONS[1],
         documents,
         llm=llm,
         run_name="test-run",
@@ -63,7 +64,7 @@ def test_generate_clinical_answer_returns_safe_fallback_on_parse_error():
     llm = MockLLM("not json")
 
     response = generate_clinical_answer(
-        "TBI treatment.",
+        CANONICAL_MERCK_QUESTIONS[3],
         [
             {
                 "page_content": "Monitor intracranial pressure.",
@@ -116,7 +117,7 @@ def test_generate_clinical_answer_preserves_uncertainty_fields_from_llm():
     llm = MockLLM(output)
 
     response = generate_clinical_answer(
-        "Sudden patchy hair loss — likely cause and treatment?",
+        CANONICAL_MERCK_QUESTIONS[2],
         [
             {
                 "page_content": "Patchy nonscarring hair loss is characteristic.",
