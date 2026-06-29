@@ -239,7 +239,7 @@ Designed with explicit safety metadata and guardrail hooks precisely because we 
 - **Domain adaptation** for safety-critical long documents (layout intelligence + metadata)
 - **Architectural discipline** via ADRs and clean boundaries
 - **Testability & reproducibility** built in from day one
-- **Direct keyword alignment** with top AI Engineer job descriptions: Python, LLMs, RAG, LangChain, Vector Databases, Embeddings, Hybrid Retrieval, Evaluation, Modular Python Architecture, Pydantic, Clinical AI
+- **Direct alignment** with top AI Engineer real world job demmands: Python, LLMs, RAG, LangChain, Vector Databases, Embeddings, Hybrid Retrieval, Evaluation, Modular Python Architecture, Pydantic, Clinical AI
 
 ## Colab
 
