@@ -30,7 +30,7 @@ We built a **maintainable, testable, safety-conscious RAG pipeline** that treats
 - **Metadata-Aware Hybrid Retrieval**: Local dense embeddings (bge-m3) + sparse BM25 + Reciprocal Rank Fusion (RRF) + configurable field boosting (warnings boosted up to 1.7×, hierarchy 1.2×). Two retrieval strategies side-by-side for comparison.
 - **Config-Driven Factory Assembly** (ADR-005): Thin, explicit `pipeline/factory.py` wires everything from a single Pydantic `AppConfig`. No hidden singletons, full testability with overrides, clear dependency boundaries.
 - **Clinical Safety Posture**: A deterministic input guardrail now runs before retrieval, and generated answers still pass through post-generation safety validation plus explicit graph routing. Every answer path is designed to be auditable.
-- **ADR Governance**: Five Architecture Decision Records document context, alternatives considered, trade-offs, and consequences. This is how senior engineers ship systems that teams can maintain and audit.
+- **ADR Governance**: Nine Architecture Decision Records document context, alternatives considered, trade-offs, and consequences. This is how senior engineers ship systems that teams can maintain and audit.
 
 **Python**, **RAG**, **LangChain**, **Vector Databases**, **Embeddings**, **hybrid retrieval**, **evaluation harness**, **modular architecture**, **Pydantic config**, and **production patterns** in a high-stakes domain.
 
@@ -67,7 +67,7 @@ We built a **maintainable, testable, safety-conscious RAG pipeline** that treats
 - **Why metadata boosting?** Clinical warnings and hierarchy are stronger signals than pure semantic similarity in medical QA.
 - **Why Pydantic everywhere?** Type safety, validation, easy test overrides, and future guardrail flags in one maintainable source of truth.
 
-## Current Architecture (ADR-008)
+## Current Architecture (ADR-009)
 
 The system now includes a **deterministic LangGraph** implementation:
 
@@ -228,18 +228,22 @@ This roadmap deliberately prioritizes **safety and evaluation before full genera
 
 ## Medical Disclaimer
 
-**This is an educational and portfolio project only.**  
+**This is an educational and portfolio project only. But I'm open for further developement and colaboration**  
 It is **not intended for clinical use**, diagnosis, or treatment decisions. All information retrieved must be verified against primary sources and qualified medical judgment. The authors and contributors accept no liability for any clinical decisions made based on this system.
 
 Designed with explicit safety metadata and guardrail hooks precisely because we understand the stakes.
 
-## Why This Repository Signals Senior AI Engineering Capability
+## Why This Repository Signals Production Grade AI Engineering
 
 - **End-to-end production RAG**, not a toy notebook
 - **Domain adaptation** for safety-critical long documents (layout intelligence + metadata)
 - **Architectural discipline** via ADRs and clean boundaries
 - **Testability & reproducibility** built in from day one
 - **Direct keyword alignment** with top AI Engineer job descriptions: Python, LLMs, RAG, LangChain, Vector Databases, Embeddings, Hybrid Retrieval, Evaluation, Modular Python Architecture, Pydantic, Clinical AI
+
+## Colab
+
+Let's develop this into a product? I'm open to talking about developing this into a real life product.
 
 ---
 
