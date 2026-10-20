@@ -10,7 +10,6 @@
 [![bge-m3](https://img.shields.io/badge/bge--m3-Embeddings-FFD93D)](https://huggingface.co/BAAI/bge-m3)
 [![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063)](https://docs.pydantic.dev/)
 [![PyMuPDF](https://img.shields.io/badge/PyMuPDF-Layout%20Aware-00A86B)](https://pymupdf.readthedocs.io/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://www.docker.com/)
 [![xAI / Grok](https://img.shields.io/badge/xAI-Grok%20%7C%20Local%20LLMs-000000)](https://x.ai/)
 [![ADR](https://img.shields.io/badge/ADR-Governed-4B2E83)](https://adr.github.io/)
 
